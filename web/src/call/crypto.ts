@@ -1,3 +1,4 @@
+import { parseInvitation } from "./invitation.js";
 import type {
   Channel,
   IncomingSignal,
@@ -11,21 +12,7 @@ export const randomId = (): string =>
     x.toString(16).padStart(2, "0"),
   ).join("");
 export function parseInvite(value: string): string {
-  const text = value.trim();
-  if (/^[a-f\d]{32}$/i.test(text)) return text.toLowerCase();
-  try {
-    const url = new URL(text);
-    const code =
-      url.protocol === "sharestream:"
-        ? url.pathname.slice(1)
-        : url.protocol === "https:" || url.protocol === "http:"
-          ? new URLSearchParams(url.hash.slice(1)).get("room")
-          : "";
-    if (/^[a-f\d]{32}$/i.test(code || "")) return code!.toLowerCase();
-  } catch {
-    /* Invalid invitation. */
-  }
-  throw new Error("Paste a Share Stream invite or a 32-character room code.");
+  return parseInvitation(value).code;
 }
 const base64 = (value: ArrayBuffer | Uint8Array<ArrayBuffer>): string =>
   btoa(String.fromCharCode(...(value instanceof Uint8Array ? value : new Uint8Array(value))));

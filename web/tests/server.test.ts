@@ -180,6 +180,6 @@ test("HTTP serves only explicit assets with private-room security headers", asyn
   assert.equal((await fetch(base + "/server.mjs")).status, 404);
   assert.deepEqual(await (await fetch(base + "/api/health")).json(), {
     ok: true,
-    version: "0.3.0",
+    version: "0.3.1",
   });
 });

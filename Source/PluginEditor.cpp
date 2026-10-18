@@ -1,4 +1,5 @@
 #include "PluginEditor.h"
+#include "Invitation.h"
 
 static const juce::Colour background(0xff101615), panel(0xff1a2421), green(0xffb2f5ca), text(0xffedf5f0), muted(0xff91a49a);
 ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEditor(p),processor(p) {
@@ -14,9 +15,10 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     setLookAndFeel(&theme);
     for(auto* button:{&send,&receive,&connect,&newRoom,&copy,&paste,&collaboration}) { addAndMakeVisible(button); button->setMouseCursor(juce::MouseCursor::PointingHandCursor); }
     collaboration.onClick=[this]{
-        saveConfiguration(); const auto code=processor.configuration().code;
-        if(!sharestream::parseRoom(code)) {notice="Enter a valid room code first.";noticeTicks=60;return;}
-        if(!juce::URL("https://stream.whitesquirrel.digital/#room="+juce::String(code)).launchInDefaultBrowser()) {
+        saveConfiguration(); const auto c=processor.configuration();
+        const auto link=sharestream::invitationLink({c.code,sharestream::RelayAddress{c.host,c.port}});
+        if(link.empty()) {notice="Enter a valid room, server and UDP port first.";noticeTicks=60;return;}
+        if(!juce::URL(link).launchInDefaultBrowser()) {
             notice="Could not open browser. Visit stream.whitesquirrel.digital";noticeTicks=90;
         }
     };
@@ -73,21 +75,17 @@ void ShareStreamEditor::updateMode() {
 void ShareStreamEditor::copyInvite() {
     saveConfiguration(); auto c=processor.configuration();
     if(!sharestream::parseRoom(c.code)) {notice="Enter a valid room code first.";noticeTicks=45;return;}
-    juce::SystemClipboard::copyTextToClipboard("sharestream://"+juce::String(c.host)+":"+juce::String(c.port)+"/"+juce::String(c.code));
-    notice="Invite copied. Send it to your partner.";noticeTicks=45;
+    const auto link=sharestream::invitationLink({c.code,sharestream::RelayAddress{c.host,c.port}});
+    if(link.empty()) {notice="Enter a valid server and UDP port first.";noticeTicks=45;return;}
+    juce::SystemClipboard::copyTextToClipboard(link);
+    notice="Invite copied. One invite for music, voice and screen.";noticeTicks=60;
 }
 void ShareStreamEditor::pasteInvite() {
-    auto value=juce::SystemClipboard::getTextFromClipboard().trim();
-    if(value.startsWith("sharestream://")) {
-        auto rest=value.substring(14); auto authority=rest.upToFirstOccurrenceOf("/",false,false); auto code=rest.fromFirstOccurrenceOf("/",false,false);
-        auto host=authority.upToLastOccurrenceOf(":",false,false); const int remotePort=authority.fromLastOccurrenceOf(":",false,false).getIntValue();
-        if(!host.isEmpty() && remotePort>0 && remotePort<=65535 && sharestream::parseRoom(code.toStdString())) {
-            server.setText(host);port.setText(juce::String(remotePort));room.setText(code);notice="Invite loaded. Press Connect.";noticeTicks=45;return;
-        }
-    } else if(value.startsWithIgnoreCase("https://stream.whitesquirrel.digital/#room=")) {
-        const auto code=value.fromFirstOccurrenceOf("#room=",false,true);
-        if(sharestream::parseRoom(code.toStdString())) {room.setText(code);return;}
-    } else if(sharestream::parseRoom(value.toStdString())) {room.setText(value);return;}
+    const auto invite=sharestream::parseInvitation(juce::SystemClipboard::getTextFromClipboard().toStdString());
+    if(invite) {
+        if(invite->relay) {server.setText(invite->relay->host);port.setText(juce::String(invite->relay->port));}
+        room.setText(invite->code);notice="Invite loaded. Music, voice and screen use this room.";noticeTicks=60;return;
+    }
     notice="Clipboard must contain a Share Stream invite or room code.";noticeTicks=60;
 }
 void ShareStreamEditor::timerCallback() {
@@ -99,6 +97,7 @@ void ShareStreamEditor::timerCallback() {
     juce::String message;
     if(!lastStats.error.empty()) message=lastStats.error;
     else if(!running) message="Ready when you are";
+    else if(lastStats.waitingForAudio) message="Waiting for DAW audio. Enable monitoring or playback.";
     else if(!lastStats.relay && !lastStats.direct) message="Connecting to relay...";
     else if(!lastStats.peer) message="Room open. Waiting for your partner...";
     else message=(lastStats.direct ? "Direct P2P / " : "Relay / ")+juce::String(processor.configuration().role==sharestream::Role::send ? "sending audio" : (lastStats.packets ? "receiving audio" : "waiting for audio"));
@@ -113,7 +112,7 @@ void ShareStreamEditor::paint(juce::Graphics& g) {
     g.fillAll(background);
     g.setColour(green);g.setFont(juce::Font(juce::FontOptions(12).withStyle("Bold")));g.drawText("AUDIO, ACROSS THE DISTANCE",32,24,520,20,juce::Justification::left);
     g.setColour(text);g.setFont(juce::Font(juce::FontOptions(38).withStyle("Bold")));g.drawText("Share Stream",30,47,480,48,juce::Justification::left);
-    g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(13)));g.drawText(processor.standalone()?"STANDALONE  /  0.2":"PLUGIN  /  0.2",490,65,176,25,juce::Justification::right);
+    g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(13)));g.drawText(juce::String(processor.standalone()?"STANDALONE  /  ":"PLUGIN  /  ")+SHARE_STREAM_VERSION,490,65,176,25,juce::Justification::right);
     g.setColour(panel);g.fillRoundedRectangle(32,412,636,82,12);
     g.setColour(juce::Colour(0xff30443a));g.fillRoundedRectangle(48,474,604,4,2);
     g.setColour(green);g.fillRoundedRectangle(48,474,604*juce::jlimit(0.0f,1.0f,level),4,2);

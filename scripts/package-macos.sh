@@ -2,9 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application certificate identity or SHA-1}"
-package_dir="dist/ShareStream-macOS"
+artifact_root="${DIST_ROOT:-dist}"
+package_dir="$artifact_root/ShareStream-macOS"
 mkdir -p "$package_dir"
-rm -f "$package_dir/NOTARIZATION.json" dist/NOTARIZATION.json
+rm -f "$package_dir/NOTARIZATION.json" "$artifact_root/NOTARIZATION.json"
 for format in VST3 AU Standalone; do
   case "$format" in
     VST3) bundle="Share Stream.vst3";;
@@ -33,8 +34,8 @@ cp README.md "$package_dir/README.md"
 cp THIRD_PARTY.md "$package_dir/THIRD_PARTY.md"
 cp VALIDATION.md "$package_dir/VALIDATION.md"
 cp vendor/monocypher/LICENCE.md "$package_dir/Monocypher-LICENCE.md"
-ditto -c -k --sequesterRsrc --keepParent "$package_dir" dist/ShareStream-macOS.zip
-receiver_dir="dist/ShareStream-Receiver"
+ditto -c -k --sequesterRsrc --keepParent "$package_dir" "$artifact_root/ShareStream-macOS.zip"
+receiver_dir="$artifact_root/ShareStream-Receiver"
 mkdir -p "$receiver_dir"
 rm -f "$receiver_dir/NOTARIZATION.json"
 if [ -d "$receiver_dir/Share Stream.app" ]; then rm -rf "$receiver_dir/Share Stream.app"; fi
@@ -43,5 +44,5 @@ cp README-receiver.md "$receiver_dir/README.md"
 cp THIRD_PARTY.md "$receiver_dir/THIRD_PARTY.md"
 cp VALIDATION.md "$receiver_dir/VALIDATION.md"
 cp vendor/monocypher/LICENCE.md "$receiver_dir/Monocypher-LICENCE.md"
-ditto -c -k --sequesterRsrc --keepParent "$receiver_dir" dist/ShareStream-Receiver-macOS.zip
-shasum -a 256 dist/ShareStream-macOS.zip dist/ShareStream-Receiver-macOS.zip > dist/SHA256SUMS.txt
+ditto -c -k --sequesterRsrc --keepParent "$receiver_dir" "$artifact_root/ShareStream-Receiver-macOS.zip"
+shasum -a 256 "$artifact_root/ShareStream-macOS.zip" "$artifact_root/ShareStream-Receiver-macOS.zip" > "$artifact_root/SHA256SUMS.txt"

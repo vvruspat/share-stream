@@ -22,7 +22,8 @@ import {
 } from "./components/ui/index.js";
 import { ScreenStage, VoicePlayer } from "./components/Media.js";
 import { useCall } from "./call/useCall.js";
-import { parseInvite, randomId } from "./call/crypto.js";
+import { randomId } from "./call/crypto.js";
+import { parseInvitation, invitationLink, type Invitation } from "./call/invitation.js";
 import type { VoiceMode } from "./call/Call.js";
 
 const supported =
@@ -30,11 +31,11 @@ const supported =
   typeof window.RTCPeerConnection === "function" &&
   !!crypto.subtle;
 const outputSupported = "setSinkId" in HTMLMediaElement.prototype;
-function initialRoom() {
+function initialRoom(): Invitation {
   try {
-    return parseInvite(location.href);
+    return parseInvitation(location.href);
   } catch {
-    return randomId();
+    return { code: randomId(), autoJoin: false };
   }
 }
 const defaultDevice = [{ value: "", label: "System default" }];
@@ -45,8 +46,9 @@ const modes: SelectOption[] = [
 
 export function App() {
   const { call, state, remote, voiceStream, screenStream, localScreen, error, run } = useCall();
-  const [initialCode] = useState(initialRoom);
-  const [room, setRoom] = useState(initialCode);
+  const [initialInvite] = useState(initialRoom);
+  const [room, setRoom] = useState(initialInvite.code);
+  const [relay, setRelay] = useState(initialInvite.relay);
   const [joining, setJoining] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -65,8 +67,8 @@ export function App() {
   );
 
   useEffect(() => {
-    history.replaceState(null, "", `/#room=${initialCode}`);
-  }, [initialCode]);
+    history.replaceState(null, "", invitationLink(initialInvite, location.origin, false));
+  }, [initialInvite]);
   useEffect(() => {
     if (!copied) return;
     const timer = setTimeout(() => setCopied(false), 1800);
@@ -99,14 +101,40 @@ export function App() {
     return () => navigator.mediaDevices?.removeEventListener("devicechange", changed);
   }, [devices]);
 
+  // Native Voice & screen supplies explicit join intent in the fragment.
+  // Signaling never opens the microphone or screen. Call.leave() invalidates
+  // the first pending join during React StrictMode's effect cleanup.
+  useEffect(() => {
+    if (!supported || !initialInvite.autoJoin) return;
+    let live = true;
+    setJoining(true);
+    void run(async () => {
+      try {
+        await call.join(initialInvite.code);
+        await devices();
+      } finally {
+        if (live) setJoining(false);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [call, initialInvite, run, devices]);
+
   const join = () =>
     run(async () => {
       setJoining(true);
       try {
-        const code = parseInvite(room);
-        setRoom(code);
-        history.replaceState(null, "", `/#room=${code}`);
-        await call.join(code);
+        const invite = parseInvitation(room);
+        setRoom(invite.code);
+        const endpoint = invite.relay || relay;
+        setRelay(endpoint);
+        history.replaceState(
+          null,
+          "",
+          invitationLink({ ...invite, relay: endpoint }, location.origin, false),
+        );
+        await call.join(invite.code);
         await devices();
       } finally {
         setJoining(false);
@@ -114,7 +142,10 @@ export function App() {
     });
   const copy = () =>
     run(async () => {
-      await navigator.clipboard.writeText(`${location.origin}/#room=${parseInvite(room)}`);
+      const invite = parseInvitation(room);
+      await navigator.clipboard.writeText(
+        invitationLink({ ...invite, relay: invite.relay || relay }, location.origin),
+      );
       setCopied(true);
     });
   const micLabel = state.micBusy
@@ -172,7 +203,9 @@ export function App() {
               spellCheck={false}
               placeholder="Paste your plugin invite or room code"
             />
-            <p className="small">The same room as your plugin. Two people, one private session.</p>
+            <p className="small">
+              One invite for music, voice and screen. Two people, one private session.
+            </p>
           </div>
           <div className="room-buttons">
             {state.active ? (
@@ -200,7 +233,7 @@ export function App() {
               }}
             >
               {copied ? <CheckIcon /> : <ClipboardDocumentIcon />}
-              {copied ? "Copied" : "Copy call invite"}
+              {copied ? "Copied" : "Copy invite"}
             </Button>
           </div>
         </section>

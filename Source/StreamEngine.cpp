@@ -72,6 +72,7 @@ void StreamEngine::disconnectLocked() {
 void StreamEngine::disconnect() { std::lock_guard lock(controlMutex); disconnectLocked(); }
 void StreamEngine::prepare(double rate, int block) {
     std::lock_guard lock(controlMutex);
+    if (hostRate == rate && maxBlock == std::max(1, block)) return;
     if (current) { disconnectLocked(); setError("Audio device changed. Press Connect again."); }
     hostRate = rate; maxBlock = std::max(1, block);
 }

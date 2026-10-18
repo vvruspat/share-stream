@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "StreamEngine.h"
+#include <limits>
 
 class ShareStreamProcessor final : public juce::AudioProcessor {
 public:
@@ -15,7 +16,9 @@ public:
     const juce::String getName() const override { return "Share Stream"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0; }
+    // A network source may produce audio at any time, even after silent input.
+    // Advertise this before Connect/Listen so hosts don't cache a zero tail.
+    double getTailLengthSeconds() const override { return std::numeric_limits<double>::infinity(); }
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
@@ -27,12 +30,13 @@ public:
     void setConfiguration(const sharestream::Connection&);
     bool start();
     void stop();
-    sharestream::Statistics statistics() const { return engine.statistics(); }
+    sharestream::Statistics statistics() const;
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
 private:
     sharestream::StreamEngine engine;
     mutable std::mutex configMutex;
     sharestream::Connection config;
     std::atomic<bool> listen {false};
+    std::atomic<bool> connectionRequested {false};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ShareStreamProcessor)
 };

@@ -306,6 +306,51 @@ test("headphone mode releases the old capture before switching and preserves mut
   }
 });
 
+test("one native invite opens the same chat automatically without capturing media", async ({
+  browser,
+  baseURL,
+}) => {
+  const { a, b, pa, pb, code } = await pair(browser, baseURL);
+  try {
+    await a.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const requests: string[] = [];
+    pa.on("request", (request) => requests.push(request.url()));
+    const link = `${baseURL}/#room=${code}&relay=relay.example.com&port=48123&join=1`;
+    // Native launch opens a document. Changing only the hash on the fixture's
+    // already-rendered page would be an unrelated same-document navigation.
+    await pa.goto("about:blank");
+    await pb.goto("about:blank");
+    await pa.goto(link);
+    await pb.goto(link);
+    await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await expect(pb.locator("#status")).toContainText("Connected");
+    await expect(pa.locator("#room")).toHaveValue(code);
+    expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    expect(await pb.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    await pa.getByRole("button", { name: "Copy invite", exact: true }).click();
+    await expect(pa.locator("#copy")).toHaveText("Copied");
+    const copied = await pa.evaluate(() => navigator.clipboard.readText());
+    const parameters = new URLSearchParams(new URL(copied).hash.slice(1));
+    expect(Object.fromEntries(parameters)).toEqual({
+      room: code,
+      relay: "relay.example.com",
+      port: "48123",
+      join: "1",
+    });
+    expect(requests.every((url) => !url.includes(code))).toBe(true);
+    expect(await pa.evaluate(() => new URLSearchParams(location.hash.slice(1)).has("join"))).toBe(
+      false,
+    );
+    await pa.locator("#leave").click();
+    await expect(pa.locator("#status")).toHaveText("Ready");
+    await expect(pa.locator("#join")).toBeEnabled();
+    expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});
+
 test("mobile page fits its viewport and opens with capture off", async ({ browser, baseURL }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },

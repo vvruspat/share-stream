@@ -1,4 +1,44 @@
-# Share Stream 0.2.0 — validation, 2026-10-18
+# Share Stream 0.3.1 — validation, 2026-10-18
+
+## 0.3.1 Listen and unified invitation
+
+- Listen advertises an infinite audio tail and VST3 Generator capability, accepts
+  mono/stereo outputs with a disabled input, and renders incoming audio independently
+  of local input. Mono-to-stereo Send duplicates the source channel explicitly.
+- Identical prepares retain the live network session. DAW release/prepare and sample-rate
+  changes retain Connect intent and re-establish the same room. Explicit Disconnect and
+  saved-session restore clear that intent; no broadcast starts from session restore.
+- A CTest processor integration uses its own local relay and synthetic stereo input.
+  It checks received samples with disabled inputs, repeated prepare, release/resume,
+  48 to 96 kHz changes, explicit stop and state restore. The VST3 host probe loads the
+  actual bundle, presses its native Connect accessibility action and receives decoded
+  stereo samples with zero input channels. It also checks factory/state and nine Send
+  rate/block configurations. This does not reproduce every DAW's monitoring policy.
+- Native and web invitation parsers use the same valid/invalid fixtures. The canonical
+  HTTPS fragment carries the existing room secret plus native relay address/UDP port;
+  legacy sharestream invitations and raw room codes remain accepted.
+- The native Voice & screen button carries one-time join intent. Browser tests confirm
+  both participants join the same room without another invite, the copied invite retains
+  the custom audio relay, the token is absent from HTTP URLs, and capture stays off.
+- Browser checks: Vite+ format/lint/type checks, 13 unit/integration tests and all six
+  synthetic-media browser tests passed locally. Runtime/hardware limits are unchanged.
+- Installed signed VST3 and AudioUnit receive probes passed; AU uses an enabled but
+  silent input bus as required by its host wrapper, while VST3 disables its input bus.
+  Apple auval reports component 0.3.1 and AU VALIDATION SUCCEEDED. The previous 0.2.0
+  VST3 fails the new infinite-tail assertion, establishing the metadata regression.
+- Universal VST3/AU/receiver are signed only with the user's Developer ID,
+  Team 3WKK5AGY66. Apple notarization Accepted, no issues, submission
+  `e54e218a-a8bd-427f-9717-41a7298d763f`. All three bundles are stapled; Gatekeeper
+  accepts the app. Versioned artifact directories and atomic installation preserve
+  previous bundles and avoid overwriting a running DAW's mapped executable.
+- All six browser scenarios passed on live HTTPS with forced TURN relay; the media,
+  mute and reconnect scenario also passed with TCP-only TURN. Coolify web health
+  reports 0.3.1. TURN start time is unchanged and the native UDP relay stays active.
+- Core tests passed as arm64 and x86_64/Rosetta, and all five Python relay tests passed.
+  The user's Logic session was left open; host probes exercise AU/VST3 independently,
+  so the updated AU takes effect in that session after restarting Logic.
+
+## Previous validations
 
 ## Browser 0.2.1 hotfix
 

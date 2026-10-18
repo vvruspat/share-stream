@@ -40,6 +40,13 @@ the service and TURN secret mounts after the local rename to `web/`.
 
 ## Media invariants
 
+Native and browser clients use the same 32-character room secret. `Copy invite`
+produces an HTTPS link with room and optional native relay metadata in the fragment.
+The native `Voice & screen` button also adds one-time `join=1` intent; the page joins
+signaling automatically and removes that flag from history. A plain page/room URL
+still needs Join. Neither path opens capture. Both invitation parsers share fixture
+coverage in `Tests/Invitations.json`; legacy native links and raw tokens remain valid.
+
 Native music, browser screen and browser voice remain independent transports.
 The screen capture never includes audio. Captures require explicit actions;
 React renders and effect re-subscriptions never open the microphone. Headphones

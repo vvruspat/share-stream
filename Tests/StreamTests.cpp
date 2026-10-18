@@ -1,5 +1,7 @@
 #include "Protocol.h"
 #include "AudioRing.h"
+#include "Invitation.h"
+#include <juce_core/juce_core.h>
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
@@ -9,6 +11,22 @@
 static void check(bool value,const char* message) { if(!value) {std::cerr<<"FAIL: "<<message<<'\n';std::exit(1);} }
 int main() {
     using namespace sharestream;
+    const auto inviteCases=juce::JSON::parse(juce::File(SHARE_STREAM_INVITE_FIXTURES));
+    check(inviteCases.isArray(),"shared invitation fixture file");
+    for(const auto& test:*inviteCases.getArray()) {
+        const auto parsed=parseInvitation(test["input"].toString().toStdString());
+        if(static_cast<bool>(test["invalid"])) {check(!parsed,"malformed invitation rejected");continue;}
+        check(parsed && parsed->code==test["code"].toString().toStdString(),"native and browser share one room token");
+        const auto relay=test["relay"];
+        check(parsed->relay.has_value()==relay.isObject(),"optional relay preserved");
+        if(parsed->relay) {
+            check(parsed->relay->host==relay["host"].toString().toStdString() && parsed->relay->port==static_cast<int>(relay["port"]),"custom relay preserved");
+            const auto link=invitationLink(*parsed);
+            check(link.find("&join=1")!=std::string::npos,"native chat button carries join intent");
+            const auto roundtrip=parseInvitation(link);
+            check(roundtrip && roundtrip->code==parsed->code && roundtrip->relay->host==parsed->relay->host && roundtrip->relay->port==parsed->relay->port,"canonical invite round trip");
+        }
+    }
     auto code=newRoomCode(); auto room=parseRoom(code);
     check(room.has_value(),"generated room parses");
     check(!parseRoom("test"),"weak room rejected");

@@ -2,8 +2,9 @@
 
 Native macOS VST3, AU and standalone receiver for private two-person audio streaming.
 Default relay: **13.140.153.191:48100 UDP**. macOS 12+, Intel and Apple Silicon.
-Version **0.2.0** adds browser voice chat and screen sharing at **https://stream.whitesquirrel.digital/**.
-Browser service **0.3.0** uses React, TypeScript and Vite+, with styled Radix UI controls
+Version **0.3.1** fixes plugin Listen on silent/disabled input and reconnects after DAW audio restarts.
+One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
+Browser service **0.3.1** uses React, TypeScript and Vite+, with styled Radix UI controls
 and Heroicons. Unprocessed headphone capture remains the default.
 
 Сервер знакомит участников: плагин и приложение пробуют прямое UDP-соединение
@@ -35,10 +36,14 @@ Tickets прикреплены к плагинам и приложению; ре
 
 ## Голос и экран
 
-1. Нажмите **Voice & screen...** в плагине или standalone. Откроется браузер с тем же кодом комнаты.
-   Можно открыть https://stream.whitesquirrel.digital/ вручную и вставить **Copy invite** из плагина.
-2. Оба участника нажимают **Join room**. Затем **Enable microphone** для разговора
+1. Нажмите **Voice & screen...** в плагине или standalone. Браузер автоматически войдёт
+   в ту же комнату; новое приглашение не требуется. **Copy invite** копирует единую HTTPS-ссылку:
+   её можно открыть в браузере или вставить через **Paste invite** в плагин/приёмник.
+   Код комнаты и параметры аудиосервера находятся только во фрагменте после `#`.
+   Старые `sharestream://`-приглашения и 32-символьные коды по-прежнему принимаются.
+2. Нажмите **Enable microphone** для разговора
    и **Share screen** для выбора окна/экрана. Оба участника могут показывать экран одновременно.
+   При ручном открытии пустой страницы вставьте приглашение и нажмите **Join room**.
 3. **Mute microphone**, **Stop sharing** и **Leave** управляют каждым действием отдельно.
    Если браузер блокирует автовоспроизведение, нажмите **Play partner's voice**.
    Микрофон и выход голоса выбираются в **Voice devices**; в браузерах без выбора выхода
