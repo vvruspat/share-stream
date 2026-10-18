@@ -100,9 +100,15 @@ export function createService({
       return;
     }
     if (req.url === "/api/health") {
-      res
-        .writeHead(200, { ...headers, "Content-Type": "application/json" })
-        .end(JSON.stringify({ ok: true, version: WEB_VERSION }));
+      res.writeHead(200, { ...headers, "Content-Type": "application/json" }).end(
+        JSON.stringify({
+          ok: true,
+          version: WEB_VERSION,
+          ...(process.env.SHARE_STREAM_REVISION
+            ? { revision: process.env.SHARE_STREAM_REVISION }
+            : {}),
+        }),
+      );
       return;
     }
     // Only built frontend assets are public. Source, configuration, credentials,

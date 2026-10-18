@@ -1,5 +1,15 @@
 # Share Stream
 
+**Audio, across the distance.** Mix together with a private music stream, voice and screen sharing.
+
+[![CI](https://github.com/vvruspat/share-stream/actions/workflows/ci.yml/badge.svg)](https://github.com/vvruspat/share-stream/actions/workflows/ci.yml)
+[![Release](https://github.com/vvruspat/share-stream/actions/workflows/release.yml/badge.svg)](https://github.com/vvruspat/share-stream/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/vvruspat/share-stream?color=b5f5cf)](https://github.com/vvruspat/share-stream/releases/latest)
+
+[**Download for macOS**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
+
+![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/web.png)
+
 Native macOS VST3, AU and standalone receiver for private two-person audio streaming.
 Default relay: **13.140.153.191:48100 UDP**. macOS 12+, Intel and Apple Silicon.
 Version **0.3.1** fixes plugin Listen on silent/disabled input and reconnects after DAW audio restarts.
@@ -27,12 +37,10 @@ and Heroicons. Unprocessed headphone capture remains the default.
    и размера буфера. Начните с 128 samples. Приложение открывает только аудиовыход,
    не запрашивает микрофон и не открывает аудиовход.
 
-Если macOS блокирует приложение из архива: Finder → правой кнопкой → Открыть
-или разрешите запуск в Системные настройки → Конфиденциальность и безопасность.
-Готовые архивы подписаны Developer ID Application; результат Apple notarization
-для конкретной сборки указан в `NOTARIZATION.json`.
-Tickets прикреплены к плагинам и приложению; результат записан в `NOTARIZATION.json`
-и `VALIDATION.md`. macOS может показать обычное подтверждение первого запуска.
+Готовые архивы подписаны Developer ID Application владельца проекта и проходят Apple
+notarization. Tickets прикреплены к плагинам и приложению; результат конкретной сборки
+указан в `NOTARIZATION.json`, контрольные суммы — в `SHA256SUMS.txt`.
+macOS может показать обычное подтверждение первого запуска.
 
 ## Голос и экран
 
@@ -121,6 +129,14 @@ Relay получает производный идентификатор ком�
 Адреса, время и объём трафика видимы серверу. Сервер не хранит аудио и коды комнат.
 Код комнаты сохраняется в проекте DAW/настройках приложения. New room меняет секрет.
 Приглашение передаётся отдельно, например в личном сообщении.
+
+## Repository and releases
+
+Один монорепозиторий: JUCE/C++ в `Source/`, UDP relay в `server/`,
+React/TypeScript/Vite+ в `web/`. Общие тестовые приглашения находятся в `Tests/Invitations.json`.
+На pull request и push в `main` GitHub Actions проверяет браузер, relay и universal-сборку macOS.
+Тег `vX.Y.Z` запускает подписанный релиз и выкладку backend через существующий Coolify.
+Подробная схема, секреты и порядок выпуска — в [release guide](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md).
 
 ## Build
 

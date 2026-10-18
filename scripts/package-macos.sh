@@ -45,4 +45,4 @@ cp THIRD_PARTY.md "$receiver_dir/THIRD_PARTY.md"
 cp VALIDATION.md "$receiver_dir/VALIDATION.md"
 cp vendor/monocypher/LICENCE.md "$receiver_dir/Monocypher-LICENCE.md"
 ditto -c -k --sequesterRsrc --keepParent "$receiver_dir" "$artifact_root/ShareStream-Receiver-macOS.zip"
-shasum -a 256 "$artifact_root/ShareStream-macOS.zip" "$artifact_root/ShareStream-Receiver-macOS.zip" > "$artifact_root/SHA256SUMS.txt"
+(cd "$artifact_root" && shasum -a 256 ShareStream-macOS.zip ShareStream-Receiver-macOS.zip > SHA256SUMS.txt)
