@@ -160,6 +160,14 @@ void StreamEngine::run(Session* s) {
     if(getaddrinfo(s->config.host.c_str(),port.c_str(),&hints,&address)!=0) { setError("Cannot resolve server address."); return; }
     const int fd=socket(address->ai_family,SOCK_DGRAM,0);
     if(fd<0) { freeaddrinfo(address); setError("Cannot create UDP socket."); return; }
+    // Best-effort EF marking for the time-critical music stream, above screen/voice.
+    // Networks may ignore DSCP; failure here must never prevent streaming.
+    const int musicTos=46<<2;
+    setsockopt(fd,IPPROTO_IP,IP_TOS,&musicTos,sizeof(musicTos));
+#if defined(__APPLE__) && defined(SO_NET_SERVICE_TYPE)
+    const int musicService=NET_SERVICE_TYPE_VO;
+    setsockopt(fd,SOL_SOCKET,SO_NET_SERVICE_TYPE,&musicService,sizeof(musicService));
+#endif
     sockaddr_in relayAddress=*reinterpret_cast<sockaddr_in*>(address->ai_addr);
     sockaddr_in local {};local.sin_family=AF_INET;local.sin_addr.s_addr=INADDR_ANY;
     if(bind(fd,reinterpret_cast<const sockaddr*>(&local),sizeof(local))!=0) {close(fd);freeaddrinfo(address);setError("Cannot bind UDP socket.");return;}

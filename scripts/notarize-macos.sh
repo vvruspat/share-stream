@@ -35,7 +35,11 @@ report={
 }
 Path('dist/NOTARIZATION.json').write_text(json.dumps(report,indent=2)+'\n')
 PY
-ditto "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app"
+# Re-running after documentation changes must not overwrite an identical app
+# that LaunchServices may now protect as a launched application.
+if ! diff -qr "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app" > /dev/null; then
+  ditto "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app"
+fi
 for folder in "$package_dir" "$receiver_dir"; do
   cp VALIDATION.md "$folder/VALIDATION.md"
   cp THIRD_PARTY.md "$folder/THIRD_PARTY.md"

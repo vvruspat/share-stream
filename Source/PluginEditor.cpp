@@ -12,7 +12,14 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     theme.setColour(juce::PopupMenu::backgroundColourId,panel);
     theme.setColour(juce::PopupMenu::textColourId,text);
     setLookAndFeel(&theme);
-    for(auto* button:{&send,&receive,&connect,&newRoom,&copy,&paste}) { addAndMakeVisible(button); button->setMouseCursor(juce::MouseCursor::PointingHandCursor); }
+    for(auto* button:{&send,&receive,&connect,&newRoom,&copy,&paste,&collaboration}) { addAndMakeVisible(button); button->setMouseCursor(juce::MouseCursor::PointingHandCursor); }
+    collaboration.onClick=[this]{
+        saveConfiguration(); const auto code=processor.configuration().code;
+        if(!sharestream::parseRoom(code)) {notice="Enter a valid room code first.";noticeTicks=60;return;}
+        if(!juce::URL("https://stream.whitesquirrel.digital/#room="+juce::String(code)).launchInDefaultBrowser()) {
+            notice="Could not open browser. Visit stream.whitesquirrel.digital";noticeTicks=90;
+        }
+    };
     if(p.standalone()) {
         send.setVisible(false); addAndMakeVisible(audioSettings);
         audioSettings.onClick=[this]{if(onAudioSettings)onAudioSettings();};
@@ -25,6 +32,7 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
         editor->onTextChange=[this]{saveConfiguration();};
     }
     port.setInputRestrictions(5,"0123456789");
+    port.setTooltip("Relay UDP port: 48100. This is not the audio sample rate.");
     auto cfg=processor.configuration();
     server.setText(cfg.host,false); port.setText(juce::String(cfg.port),false); room.setText(cfg.code,false);
     room.setFont(juce::Font(juce::FontOptions(17).withName(juce::Font::getDefaultMonospacedFontName())));
@@ -32,11 +40,12 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     for(int ms:{5,10,20,40,80,100}) buffer.addItem(juce::String(ms)+" ms",ms);
     buffer.setSelectedId(cfg.jitterMs,juce::dontSendNotification);
     buffer.onChange=[this]{saveConfiguration();};
-    for(auto* label:{&serverLabel,&roomLabel,&bufferLabel,&status,&hint,&stats}) {
+    for(auto* label:{&serverLabel,&portLabel,&roomLabel,&bufferLabel,&status,&hint,&stats}) {
         addAndMakeVisible(label); label->setColour(juce::Label::textColourId,muted);
         label->setFont(juce::Font(juce::FontOptions(14))); label->setBorderSize(juce::BorderSize<int>(0));
     }
-    serverLabel.setText("RELAY SERVER / UDP PORT",juce::dontSendNotification);
+    serverLabel.setText("RELAY SERVER",juce::dontSendNotification);
+    portLabel.setText("UDP PORT",juce::dontSendNotification);
     roomLabel.setText("PRIVATE ROOM CODE",juce::dontSendNotification);
     bufferLabel.setText("MIN. NET BUFFER",juce::dontSendNotification);
     status.setFont(juce::Font(juce::FontOptions(18).withStyle("Bold")));
@@ -75,6 +84,9 @@ void ShareStreamEditor::pasteInvite() {
         if(!host.isEmpty() && remotePort>0 && remotePort<=65535 && sharestream::parseRoom(code.toStdString())) {
             server.setText(host);port.setText(juce::String(remotePort));room.setText(code);notice="Invite loaded. Press Connect.";noticeTicks=45;return;
         }
+    } else if(value.startsWithIgnoreCase("https://stream.whitesquirrel.digital/#room=")) {
+        const auto code=value.fromFirstOccurrenceOf("#room=",false,true);
+        if(sharestream::parseRoom(code.toStdString())) {room.setText(code);return;}
     } else if(sharestream::parseRoom(value.toStdString())) {room.setText(value);return;}
     notice="Clipboard must contain a Share Stream invite or room code.";noticeTicks=60;
 }
@@ -101,7 +113,7 @@ void ShareStreamEditor::paint(juce::Graphics& g) {
     g.fillAll(background);
     g.setColour(green);g.setFont(juce::Font(juce::FontOptions(12).withStyle("Bold")));g.drawText("AUDIO, ACROSS THE DISTANCE",32,24,520,20,juce::Justification::left);
     g.setColour(text);g.setFont(juce::Font(juce::FontOptions(38).withStyle("Bold")));g.drawText("Share Stream",30,47,480,48,juce::Justification::left);
-    g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(13)));g.drawText(processor.standalone()?"STANDALONE  /  0.1":"PLUGIN  /  0.1",490,65,176,25,juce::Justification::right);
+    g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(13)));g.drawText(processor.standalone()?"STANDALONE  /  0.2":"PLUGIN  /  0.2",490,65,176,25,juce::Justification::right);
     g.setColour(panel);g.fillRoundedRectangle(32,412,636,82,12);
     g.setColour(juce::Colour(0xff30443a));g.fillRoundedRectangle(48,474,604,4,2);
     g.setColour(green);g.fillRoundedRectangle(48,474,604*juce::jlimit(0.0f,1.0f,level),4,2);
@@ -110,9 +122,10 @@ void ShareStreamEditor::paint(juce::Graphics& g) {
 }
 void ShareStreamEditor::resized() {
     send.setBounds(32,114,142,40);receive.setBounds(180,114,142,40);
+    collaboration.setBounds(processor.standalone()?210:440,114,228,40);
     if(processor.standalone()) {receive.setBounds(32,114,142,40);audioSettings.setBounds(490,114,178,40);}
     hint.setBounds(32,165,636,24);
-    serverLabel.setBounds(32,208,420,20);server.setBounds(32,234,470,46);port.setBounds(514,234,154,46);
+    serverLabel.setBounds(32,208,420,20);portLabel.setBounds(514,208,154,20);server.setBounds(32,234,470,46);port.setBounds(514,234,154,46);
     roomLabel.setBounds(32,296,420,20);newRoom.setBounds(546,289,122,30);room.setBounds(32,324,636,46);
     copy.setBounds(32,379,126,26);paste.setBounds(166,379,126,26);
     status.setBounds(48,424,604,25);stats.setBounds(48,451,604,18);

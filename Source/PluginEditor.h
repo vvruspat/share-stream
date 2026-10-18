@@ -20,9 +20,10 @@ private:
     juce::TextButton send {"Send"}, receive {"Listen"}, connect {"Connect"};
     juce::TextButton newRoom {"New room"}, copy {"Copy invite"}, paste {"Paste invite"};
     juce::TextButton audioSettings {"Audio output..."};
+    juce::TextButton collaboration {"Voice & screen..."};
     juce::TextEditor server, port, room;
     juce::ComboBox buffer;
-    juce::Label serverLabel, roomLabel, bufferLabel, status, hint, stats;
+    juce::Label serverLabel, portLabel, roomLabel, bufferLabel, status, hint, stats;
     sharestream::Statistics lastStats;
     juce::String notice;
     int noticeTicks=0;

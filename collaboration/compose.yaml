@@ -1,0 +1,27 @@
+services:
+  web:
+    image: share-stream-call:0.2.0
+    build:
+      context: /opt/share-stream/collaboration
+    restart: unless-stopped
+    environment:
+      PUBLIC_ORIGIN: https://stream.whitesquirrel.digital
+      TURN_HOST: stream.whitesquirrel.digital
+      TURN_SECRET_FILE: /run/secrets/turn-secret
+    volumes: [/opt/share-stream/collaboration/turn-secret:/run/secrets/turn-secret:ro]
+    expose: ["48101"]
+    read_only: true
+    tmpfs: /tmp:size=16m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    cpus: 1
+  turn:
+    image: coturn/coturn:4.18.0-r0-alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes: [/opt/share-stream/collaboration/turnserver.conf:/etc/coturn/turnserver.conf:ro]
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1

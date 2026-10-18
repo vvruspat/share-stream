@@ -9,6 +9,12 @@
   Dual licensed BSD-2-Clause / CC0; the complete licence is included alongside them.
 - VST is a trademark of Steinberg Media Technologies GmbH. The JUCE distribution
   includes the VST3 SDK and its licence notices.
+- Browser signaling service: ws 8.22.0 (MIT), https://github.com/websockets/ws.
+  Node.js 24 image, https://github.com/nodejs/node/blob/main/LICENSE.
+- TURN service: coturn 4.18.0, Docker image `coturn/coturn:4.18.0-r0-alpine`,
+  BSD-3-Clause, https://github.com/coturn/coturn/blob/master/LICENSE.
+- Browser QA: Playwright 1.64.1, Apache-2.0, https://github.com/microsoft/playwright.
+  These server/test dependencies are not bundled into the native macOS binaries.
 
 The source is included in this workspace. Distribution archives require a Developer
 ID Application signature; packaging refuses ad-hoc signing. Apple notarization is

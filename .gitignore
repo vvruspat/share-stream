@@ -4,3 +4,9 @@ dist/
 __pycache__/
 *.pyc
 .venv/
+node_modules/
+collaboration/test-results/
+collaboration/playwright-report/
+collaboration/.env
+collaboration/turn-secret
+collaboration/turnserver.conf

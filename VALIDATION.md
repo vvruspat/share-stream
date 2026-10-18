@@ -1,6 +1,49 @@
-# Share Stream 0.1.0 — validation, 2026-10-18
+# Share Stream 0.2.0 — validation, 2026-10-18
 
-## Distribution
+## 0.2.0 verification
+
+- Universal arm64 + x86_64 build of VST3, AU and output-only receiver completed.
+- Native CTest, x86_64/Rosetta core tests, five Python relay tests, and VST3 host
+  probe (nine audio configurations, Send passthrough, silent Listen, state restore) passed.
+- Standalone 0.2.0 Info.plist has no microphone permission key. Capture remains browser-only.
+- Browser service: eight Node tests cover encrypted signaling, participant/stream/sequence
+  binding, tamper rejection, room isolation, room capacity, session resumption,
+  origin validation, expiring TURN credentials and private asset/security headers.
+- Chromium synthetic-media integration verifies separate single-transceiver peer
+  connections, voice in both directions, video decoding in both directions, bitrate/
+  network priorities, mute, stop, Leave releasing tracks and reconnect without recapture.
+- Congestion integration verifies voice pauses before screen bitrate reduces and
+  voice resumes after stable measurements. It injects network statistics; it does
+  not establish router-level QoS or measure a real congested consumer connection.
+- Browser app is deployed by Coolify, project **Share Stream / production / Voice and screen**.
+  `web` health reports 0.2.0. HTTPS uses a valid Let's Encrypt certificate.
+- Native music relay remains active on UDP 48100; it was not restarted during browser deployment.
+- Signed AU validation and the installed signed VST3 host probe passed again for 0.2.0.
+- 0.2.0 is signed with the user's Developer ID (Team 3WKK5AGY66), hardened runtime,
+  and secure timestamp. Apple notarization **Accepted**, no issues, submission
+  `9d57df33-8351-42f7-9d0f-bd7dd65cc9cb`. All three bundles are stapled and validated;
+  Gatekeeper accepts the app as **Notarized Developer ID**. See `NOTARIZATION.json`.
+- Local Chromium integration: three tests passed, including responsive mobile layout,
+  signaling reconnect preserving captures, Leave/rejoin, and TURN credential renewal
+  exercising an ICE restart on both independent transports.
+- Live HTTPS Chromium integration: all three tests passed with relay-only ICE;
+  both selected media paths were confirmed as TURN relay candidates. An additional
+  TCP-only TURN run passed the full two-way media / restart / reconnect / rejoin flow;
+  both initial selected relay transports were confirmed as TCP. Tests use generated media.
+
+### Scope
+
+Browser media tests use generated tone/canvas content. They validate media transport
+and decoding, without capturing the user's real microphone, desktop or DAW. Real
+hardware capture permissions and listening with another human still need user testing.
+QoS markings and browser caps express best-effort priority; they cannot reserve music
+bandwidth on an arbitrary router. Native socket configuration accepts DSCP EF on this
+Mac, but an EF-filtered server capture did not see that mark on the internet path.
+No guarantee is made that an ISP/router preserves DSCP.
+
+## Previous 0.1.0 audio baseline (historical evidence)
+
+### Distribution
 
 - VST3, AU and a dedicated output-only standalone receiver.
 - Universal macOS binaries: arm64 and x86_64, deployment target macOS 12.
@@ -13,7 +56,7 @@
 - Standalone has no `NSMicrophoneUsageDescription`, opens zero input channels,
   and exposes only an audio-output selector. The user confirmed that microphone prompts stopped.
 
-## Checks completed
+### Checks completed
 
 - Core CTest: authenticated encryption, wrong-key rejection, authenticated headers,
   truncation/tampering, authenticated P2P probes and concurrent SPSC stereo ordering.
@@ -38,13 +81,13 @@
 - Receiver drained to silence after the sender stopped. Replaying a previously seen
   frame cannot trigger repeated adaptive-buffer increases.
 
-## Live deployment
+### Live deployment
 
 `share-stream-relay.service` is enabled and active on **13.140.153.191**, UDP **48100**.
 It introduces the public UDP endpoints, then audio uses P2P when reachable. Relay
 fallback remains available for incompatible NATs/firewalls. Audio keys remain on clients.
 
-## Limits of these checks
+### Limits of these checks
 
 Measured delays exclude physical audio-interface and DAW buffers. A complete live
 session between two human-operated DAWs/audio interfaces behind separate consumer
