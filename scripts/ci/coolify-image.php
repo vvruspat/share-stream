@@ -16,6 +16,10 @@ unset($compose['services']['web']['build']);
 $raw = Symfony\Component\Yaml\Yaml::dump($compose, 10, 2);
 parseDockerComposeYaml($raw);
 validateDockerComposeForInjection($raw);
+if (getenv('SHARE_STREAM_DRY_RUN') === '1') {
+    echo "Existing Coolify service and updated compose validated; no changes saved\n";
+    return;
+}
 $service->docker_compose_raw = $raw;
 $service->save();
 $service->parse();

@@ -14,7 +14,8 @@ def release_info(tag=None):
     version = re.search(r'project\(ShareStream VERSION (\d+\.\d+\.\d+)',
                         (ROOT / 'CMakeLists.txt').read_text())[1]
     assert json.loads((ROOT / 'web/package.json').read_text())['version'] == version
-    assert json.loads((ROOT / 'web/package-lock.json').read_text())['version'] == version
+    lock = json.loads((ROOT / 'web/package-lock.json').read_text())
+    assert lock['version'] == lock['packages']['']['version'] == version
     assert f'WEB_VERSION = "{version}"' in (ROOT / 'web/shared/protocol.ts').read_text()
     assert f'image: share-stream-call:{version}' in (ROOT / 'web/compose.yaml').read_text()
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
