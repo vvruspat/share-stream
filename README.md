@@ -3,7 +3,8 @@
 Native macOS VST3, AU and standalone receiver for private two-person audio streaming.
 Default relay: **13.140.153.191:48100 UDP**. macOS 12+, Intel and Apple Silicon.
 Version **0.2.0** adds browser voice chat and screen sharing at **https://stream.whitesquirrel.digital/**.
-Browser service **0.2.1** defaults to unprocessed headphone capture and a larger voice budget.
+Browser service **0.3.0** uses React, TypeScript and Vite+, with styled Radix UI controls
+and Heroicons. Unprocessed headphone capture remains the default.
 
 Сервер знакомит участников: плагин и приложение пробуют прямое UDP-соединение
 с hole punching. После аутентифицированной проверки в обе стороны звук идёт
@@ -175,18 +176,23 @@ auval -v aufx Ss01 Shst
 Нативный аудиорелей на UDP 48100 продолжает работать отдельным systemd-сервисом.
 
 ```sh
-cd collaboration
-npm ci
-npm test
-npx playwright install chromium
-npm run test:e2e
-TEST_BASE_URL=https://stream.whitesquirrel.digital TEST_RELAY=1 npm run test:e2e
-TEST_BASE_URL=https://stream.whitesquirrel.digital TEST_RELAY=1 TEST_TURN_TCP=1 npm run test:e2e -- --grep 'explicit capture'
+bash scripts/web.sh ci
+bash scripts/web.sh exec playwright install chromium
+bash scripts/web.sh run dev  # http://localhost:5173, API and WS included
+bash scripts/web.sh run verify
+TEST_BASE_URL=https://stream.whitesquirrel.digital TEST_RELAY=1 bash scripts/web.sh run test:e2e
+TEST_BASE_URL=https://stream.whitesquirrel.digital TEST_RELAY=1 TEST_TURN_TCP=1 bash scripts/web.sh run test:e2e -- --grep 'explicit capture'
 ```
 
 Браузерные тесты используют синтетические звук и canvas, не микрофон и экран пользователя.
 Отдельные браузерные контексты проверяют медиапакеты, декодирование кадров, независимость
 транспортов, лимиты, отключение, восстановление и порядок деградации при перегрузке.
+
+Веб-код находится в `web/`: React UI в `src/`, сигнализация на TypeScript в `server/`,
+общие типы протокола в `shared/`. Сборка клиента, форматирование, линтинг и unit-тесты
+идут через Vite+. Node 24.22.0 закреплён в проекте и сборочном контейнере; скрипт
+`scripts/web.sh` подбирает совместимую версию без замены глобального Node.
+Подробности разработки и структуры — в [web/README.md](web/README.md).
 
 ```sh
 bash scripts/deploy-collaboration.sh 13.140.153.191
@@ -194,7 +200,8 @@ bash scripts/deploy-collaboration.sh 13.140.153.191
 bash scripts/deploy-collaboration.sh 13.140.153.191 --web-only
 ```
 
-Скрипт передаёт исходники в `/opt/share-stream/collaboration`, создаёт/обновляет только
+Скрипт передаёт исходники из `web/` в существующий `/opt/share-stream/collaboration`
+(путь сохранён для Coolify и TURN mounts), создаёт/обновляет только
 этот проект и вызывает штатную очередь развёртывания Coolify через artisan.
 Публичный API Coolify не включается, дополнительные API-токены не создаются.
 Coolify собирает образ из указанного каталога; исходники сохраняются на сервере

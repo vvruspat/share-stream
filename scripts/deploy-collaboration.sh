@@ -4,9 +4,12 @@ cd "$(dirname "$0")/.."
 target="${1:-13.140.153.191}"
 web_only=0
 if [ "${2:-}" = '--web-only' ]; then web_only=1; elif [ -n "${2:-}" ]; then printf 'Unknown deployment option\n' >&2; exit 1; fi
-(cd collaboration && npm ci && npm test)
+bash scripts/web.sh ci
+bash scripts/web.sh run check
+bash scripts/web.sh run build
+bash scripts/web.sh test
 ssh -o BatchMode=yes "$target" 'install -d -m 700 /opt/share-stream/collaboration'
-COPYFILE_DISABLE=1 tar --no-xattrs -C collaboration -czf - server.mjs package.json package-lock.json public Dockerfile compose.yaml .dockerignore | ssh -o BatchMode=yes "$target" 'tar -xzf - -C /opt/share-stream/collaboration'
+COPYFILE_DISABLE=1 tar --no-xattrs -C web -czf - package.json package-lock.json index.html vite.config.ts tsconfig.json tsconfig.server.json src shared server Dockerfile compose.yaml .dockerignore | ssh -o BatchMode=yes "$target" 'tar -xzf - -C /opt/share-stream/collaboration'
 scp scripts/coolify-collaboration.php "$target:/opt/share-stream/collaboration/coolify-register.php"
 ssh -o BatchMode=yes "$target" 'python3 -' <<'PY'
 import pathlib, secrets, os

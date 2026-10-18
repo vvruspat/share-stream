@@ -1,0 +1,17 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 15px;
+  color: #edf5f0;
+  background: #101615;
+  --background: #101615;
+  --panel: #19221f;
+  --border: #2b3c32;
+  --text: #edf5f0;
+  --muted: #91a49a;
+  --mint: #b2f5ca;
+  --mint-hover: #caffdc;
+  --input: #111a16;
+  --radius-panel: 14px;
+  --radius-control: 7px;
+}

@@ -1,0 +1,220 @@
+button,
+input {
+  font: inherit;
+}
+button,
+input,
+[role="slider"],
+[role="option"] {
+  -webkit-tap-highlight-color: transparent;
+}
+:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 3px;
+}
+label {
+  display: block;
+  color: #a8bbb0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  margin-bottom: 9px;
+}
+input {
+  width: 100%;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid #3a4d40;
+  border-radius: var(--radius-control);
+  padding: 12px;
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+}
+input:disabled {
+  color: var(--muted);
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 11px 15px;
+  border: 1px solid #45624f;
+  border-radius: var(--radius-control);
+  background: #253b2e;
+  color: #e0f6e7;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.button svg {
+  width: 17px;
+  height: 17px;
+}
+.button:hover:not(:disabled) {
+  background: #33543f;
+}
+.button--primary,
+.button.is-active {
+  background: var(--mint);
+  color: #102618;
+  border-color: var(--mint);
+}
+.button--primary:hover:not(:disabled),
+.button.is-active:hover:not(:disabled) {
+  background: var(--mint-hover);
+}
+.button--ghost {
+  background: transparent;
+  border-color: transparent;
+  padding: 6px;
+  min-height: 30px;
+}
+.button--danger {
+  color: #f3b8a9;
+  background: #392d27;
+  border-color: #63483b;
+}
+.button--danger:hover:not(:disabled) {
+  background: #51352d;
+}
+.button:disabled,
+.select-trigger:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.field {
+  min-width: 0;
+}
+.select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  background: var(--input);
+  color: var(--text);
+  border: 1px solid #3a4d40;
+  border-radius: var(--radius-control);
+  padding: 10px 11px;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.select-trigger > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.select-trigger > span:last-child {
+  display: flex;
+  color: var(--muted);
+}
+.select-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+.select-content {
+  z-index: 20;
+  background: #1c2b22;
+  border: 1px solid #496551;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px #0008;
+  min-width: var(--radix-select-trigger-width);
+  max-width: calc(100vw - 24px);
+  max-height: var(--radix-select-content-available-height);
+  overflow: hidden;
+}
+.select-viewport {
+  padding: 5px;
+}
+.select-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 12px;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  user-select: none;
+}
+.select-item[data-highlighted] {
+  color: var(--mint);
+  background: #304d39;
+}
+.select-item[data-state="checked"] {
+  color: var(--mint);
+}
+.select-item svg {
+  width: 15px;
+  height: 15px;
+}
+.volume-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.volume-label label {
+  margin: 0;
+}
+.volume-label output {
+  color: var(--mint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 32px;
+  touch-action: none;
+  user-select: none;
+}
+.slider-track {
+  position: relative;
+  background: #33483a;
+  height: 3px;
+  border-radius: 20px;
+  flex: 1;
+}
+.slider-range {
+  position: absolute;
+  background: var(--mint);
+  height: 100%;
+  border-radius: 20px;
+}
+.slider-thumb {
+  display: block;
+  width: 13px;
+  height: 13px;
+  background: var(--mint);
+  border-radius: 50%;
+  box-shadow: 0 1px 6px #0006;
+  cursor: grab;
+}
+.tooltip {
+  max-width: 240px;
+  z-index: 30;
+  padding: 8px 12px;
+  background: #2c4735;
+  color: #e0f6e7;
+  border: 1px solid #496551;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 4px 20px #0005;
+}
+.tooltip-arrow {
+  fill: #2c4735;
+}
