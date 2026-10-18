@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 : "${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application certificate identity or SHA-1}"
 package_dir="dist/ShareStream-macOS"
 mkdir -p "$package_dir"
+rm -f "$package_dir/NOTARIZATION.json" dist/NOTARIZATION.json
 for format in VST3 AU Standalone; do
   case "$format" in
     VST3) bundle="Share Stream.vst3";;
@@ -35,6 +36,7 @@ cp vendor/monocypher/LICENCE.md "$package_dir/Monocypher-LICENCE.md"
 ditto -c -k --sequesterRsrc --keepParent "$package_dir" dist/ShareStream-macOS.zip
 receiver_dir="dist/ShareStream-Receiver"
 mkdir -p "$receiver_dir"
+rm -f "$receiver_dir/NOTARIZATION.json"
 if [ -d "$receiver_dir/Share Stream.app" ]; then rm -rf "$receiver_dir/Share Stream.app"; fi
 ditto "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app"
 cp README-receiver.md "$receiver_dir/README.md"

@@ -25,8 +25,9 @@ Default relay: **13.140.153.191:48100 UDP**. macOS 12+, Intel and Apple Silicon.
 
 Если macOS блокирует приложение из архива: Finder → правой кнопкой → Открыть
 или разрешите запуск в Системные настройки → Конфиденциальность и безопасность.
-Архивы подписываются Developer ID Application. Notarization — отдельный этап;
-результат для конкретного выпуска смотрите в `VALIDATION.md`.
+Готовые архивы 0.1.0 подписаны Developer ID Application и одобрены Apple notarization.
+Tickets прикреплены к плагинам и приложению; результат записан в `NOTARIZATION.json`
+и `VALIDATION.md`. macOS может показать обычное подтверждение первого запуска.
 
 ## Задержка и качество
 
@@ -70,6 +71,15 @@ SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" bash scripts/bui
 Нужны Xcode command line tools, CMake >= 3.22, Ninja и интернет для JUCE 8.0.4.
 Можно переиспользовать checkout: `-DFETCHCONTENT_SOURCE_DIR_JUCE=/path/to/JUCE`.
 `SIGNING_IDENTITY` обязателен для упаковки; ad-hoc подпись в архивы не допускается.
+После подписания новой сборки выполните notarization (это не перестраивает код):
+
+```sh
+bash scripts/notarize-macos.sh SMC-notarize
+```
+
+Для продолжения уже отправленной сборки можно передать submission ID вторым аргументом.
+Не запускайте упаковку/подпись повторно после notarization: скрипт notarization сам
+прикрепляет tickets и обновляет оба ZIP и `SHA256SUMS.txt`.
 Исходный код Monocypher включён в репозиторий. Форматы сборки: VST3, AU, Standalone.
 `dist/ShareStream-macOS.zip` содержит все три варианта, установщик и инструкции.
 `dist/ShareStream-Receiver-macOS.zip` — только приложение для слушателя.

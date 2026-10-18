@@ -6,7 +6,10 @@
 - Universal macOS binaries: arm64 and x86_64, deployment target macOS 12.
 - Signed with **Developer ID Application: Aleksandr Kolesov (3WKK5AGY66)**.
 - Hardened runtime and Apple secure timestamp enabled. `codesign --verify --deep --strict` passed.
-- Apple notarization has **not** been performed: no notarytool Keychain profile was available.
+- Apple notarization **Accepted**, with no issues; submission
+  `5cfcf858-2e9d-4acd-abb1-d5910e8a194d`, using the existing `SMC-notarize` Keychain profile.
+- Tickets stapled and validated on all three bundles. Gatekeeper accepts the app as
+  **Notarized Developer ID**. Both ZIPs include the stapled bundles and `NOTARIZATION.json`.
 - Standalone has no `NSMicrophoneUsageDescription`, opens zero input channels,
   and exposes only an audio-output selector. The user confirmed that microphone prompts stopped.
 
