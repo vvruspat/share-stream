@@ -2,6 +2,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 target="${1:-13.140.153.191}"
+web_only=0
+if [ "${2:-}" = '--web-only' ]; then web_only=1; elif [ -n "${2:-}" ]; then printf 'Unknown deployment option\n' >&2; exit 1; fi
 (cd collaboration && npm ci && npm test)
 ssh -o BatchMode=yes "$target" 'install -d -m 700 /opt/share-stream/collaboration'
 COPYFILE_DISABLE=1 tar --no-xattrs -C collaboration -czf - server.mjs package.json package-lock.json public Dockerfile compose.yaml .dockerignore | ssh -o BatchMode=yes "$target" 'tar -xzf - -C /opt/share-stream/collaboration'
@@ -49,5 +51,5 @@ no-software-attribute
 (root / 'turnserver.conf').write_text(config + 'static-auth-secret=' + settings['TURN_SECRET'] + '\n')
 (root / 'turnserver.conf').chmod(0o644)
 PY
-ssh -o BatchMode=yes "$target" 'docker cp /opt/share-stream/collaboration/coolify-register.php coolify:/tmp/share-stream-register.php && docker cp /opt/share-stream/collaboration/compose.yaml coolify:/tmp/share-stream-compose.yaml && docker exec coolify php artisan tinker --execute='\''require "/tmp/share-stream-register.php";'\'''
+ssh -o BatchMode=yes "$target" "docker cp /opt/share-stream/collaboration/coolify-register.php coolify:/tmp/share-stream-register.php && docker cp /opt/share-stream/collaboration/compose.yaml coolify:/tmp/share-stream-compose.yaml && docker exec -e SHARE_STREAM_WEB_ONLY=$web_only coolify php artisan tinker --execute='require \"/tmp/share-stream-register.php\";'"
 printf '\nDeployment queued in Coolify. Check the Share Stream project, then HTTPS /api/health.\n'

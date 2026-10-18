@@ -1,5 +1,34 @@
 # Share Stream 0.2.0 — validation, 2026-10-18
 
+## Browser 0.2.1 hotfix
+
+- User reported local music attenuation and voice glitches at the sending partner,
+  using Chrome and an audio interface. Native stream gain is not controlled by voice.
+  Browser-requested voice processing is a suspected cause of local OS ducking;
+  the user's hardware symptom has not been reproduced automatically.
+- Headphones mode now requests echo cancellation, noise suppression and AGC off
+  with mandatory false constraints. Voice isolation is also disabled where supported;
+  unsupported optional voice-isolation constraints may be retried once, retaining
+  all three mandatory raw-audio requirements. Reported processing-on settings are rejected.
+- Changing mode closes the previous capture before reacquiring and preserves mute.
+  Leaving during a pending permission cannot reactivate the microphone.
+- Voice budget is 64 kbps; voice priority is normal (low), screen is medium,
+  native music remains the highest intended priority. Voice receiver jitter target
+  is 80 ms when supported. Congestion reduces voice to 32 kbps before reducing screen;
+  it no longer removes the voice track. Target buffer time is a browser hint.
+- Native 0.2.0 bundles and their Apple signing/notarization are unchanged.
+- Hotfix validation: ten Node tests passed, including pending-capture cancellation
+  and rejection of processing-on capture settings. All four Chromium integrations
+  passed locally and through live HTTPS/TURN; the two-way media/reconnect flow also
+  passed with TCP-only TURN. Reported sender limit was 64 kbps, voice receive target
+  80 ms. Under injected congestion the microphone stayed live and received audio
+  bytes continued increasing while its limit dropped to 32 kbps, then recovered.
+- Coolify deployed only the web container; `/api/health` reports 0.2.1 and healthy.
+  TURN container start time was unchanged, and native music relay remained active.
+- Automated microphone tests use synthetic capture. This host's headless browser
+  rejected even unconstrained native fake-device getUserMedia as NotSupportedError,
+  so those tests cannot establish physical Core Audio ducking behavior.
+
 ## 0.2.0 verification
 
 - Universal arm64 + x86_64 build of VST3, AU and output-only receiver completed.

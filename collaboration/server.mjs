@@ -29,7 +29,7 @@ export function createService({ origin = 'http://localhost:48101', turnHost = 's
   };
   const server = createServer(async (req, res) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, headers).end(); return; }
-    if (req.url === '/api/health') { res.writeHead(200, { ...headers, 'Content-Type': 'application/json' }).end('{"ok":true,"version":"0.2.0"}'); return; }
+    if (req.url === '/api/health') { res.writeHead(200, { ...headers, 'Content-Type': 'application/json' }).end('{"ok":true,"version":"0.2.1"}'); return; }
     const file = files.get(req.url);
     if (!file) { res.writeHead(404, headers).end('Not found'); return; }
     try { const data = await readFile(new URL(file[0], publicDir)); res.writeHead(200, { ...headers, 'Content-Type': file[1] }); res.end(req.method === 'HEAD' ? undefined : data); }

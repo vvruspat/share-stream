@@ -77,5 +77,5 @@ test('HTTP serves only explicit assets with private-room security headers', asyn
   const response = await fetch(base); assert.equal(response.status, 200); assert.match(await response.text(), /Voice & screen/);
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer'); assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal((await fetch(base + '/.env')).status, 404); assert.equal((await fetch(base + '/server.mjs')).status, 404);
-  assert.deepEqual(await (await fetch(base + '/api/health')).json(), { ok: true, version: '0.2.0' });
+  assert.deepEqual(await (await fetch(base + '/api/health')).json(), { ok: true, version: '0.2.1' });
 });

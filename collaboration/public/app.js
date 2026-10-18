@@ -14,6 +14,7 @@ $('copy').onclick = run(async () => { const invite = `${location.origin}/#room=$
 $('mic').onclick = run(async () => { await call.toggleMic(); await devices(); });
 $('share').onclick = run(() => call.shareScreen());
 $('input').onchange = run(() => call.microphone($('input').value));
+$('voice-mode').onchange = run(() => call.setVoiceMode($('voice-mode').value, $('input').value));
 $('volume').oninput = () => { $('voice').volume = Number($('volume').value); };
 $('voice').volume = 0.8;
 $('output').onchange = run(() => $('voice').setSinkId($('output').value));
@@ -31,11 +32,16 @@ async function devices() {
 }
 call.addEventListener('state', ({ detail: s }) => {
   $('status').textContent = s.state; $('join').hidden = s.active; $('join').disabled = s.active; $('leave').hidden = !s.active; $('room').disabled = s.active;
-  $('mic').disabled = $('share').disabled = !s.active; $('input').disabled = !call.micStream;
-  $('mic').textContent = s.mic ? 'Mute microphone' : call.micStream ? 'Unmute microphone' : 'Enable microphone';
+  $('share').disabled = !s.active; $('mic').disabled = !s.active || s.micBusy; $('input').disabled = !call.micStream || s.micBusy;
+  $('voice-mode').value = s.voiceMode; $('voice-mode').disabled = s.micBusy;
+  $('voice-mode-note').textContent = s.voiceMode === 'headphones'
+    ? 'Use headphones. Microphone echo cancellation and automatic processing are off for mixing.'
+    : 'For speakers: echo cancellation is on. macOS voice processing may lower other apps’ audio.';
+  $('mic').textContent = s.micBusy ? 'Opening microphone…' : s.mic ? 'Mute microphone' : call.micStream ? 'Unmute microphone' : 'Enable microphone';
   $('share').textContent = s.screen ? 'Stop sharing' : 'Share screen';
   $('mic').classList.toggle('active', s.mic); $('share').classList.toggle('active', s.screen);
-  $('media-status').textContent = s.voicePaused ? 'Voice paused to protect music & screen' : [s.mic ? 'Microphone on' : 'Microphone off', s.screen ? 'Screen on' : 'Screen off'].join(' · ');
+  $('media-status').textContent = s.voiceLimited ? 'Voice quality reduced · microphone stays connected' : [s.mic ? 'Microphone on' : 'Microphone off', s.screen ? 'Screen on' : 'Screen off'].join(' · ');
+  $('voice-budget').textContent = `≤${s.voiceBitrate / 1000} kbps`;
   $('screen-budget').textContent = `≤${(s.screenBitrate / 1000000).toFixed(1)} Mbps`;
 });
 let remoteScreen = false;
@@ -43,7 +49,7 @@ call.addEventListener('track', async ({ detail: { channel, stream } }) => {
   if (channel === 'voice') { $('voice').srcObject = stream; if (stream) { try { await $('voice').play(); $('play').hidden = true; } catch { $('play').hidden = false; } } else $('play').hidden = true; }
   else { $('remote-screen').srcObject = stream; $('remote-screen').hidden = !stream || !remoteScreen; $('placeholder').hidden = !!stream && remoteScreen; }
 });
-call.addEventListener('remoteState', ({ detail: s }) => { remoteScreen = s.screen; $('remote-mic').textContent = s.voicePaused ? 'Partner’s voice paused' : s.mic ? 'Partner’s mic on' : 'Partner’s mic off'; $('remote-screen').hidden = !s.screen || !$('remote-screen').srcObject; $('placeholder').hidden = s.screen && !!$('remote-screen').srcObject; });
+call.addEventListener('remoteState', ({ detail: s }) => { remoteScreen = s.screen; $('remote-mic').textContent = s.voicePaused ? 'Partner’s voice paused · update their page' : s.mic ? 'Partner’s mic on' : 'Partner’s mic off'; $('remote-screen').hidden = !s.screen || !$('remote-screen').srcObject; $('placeholder').hidden = s.screen && !!$('remote-screen').srcObject; });
 call.addEventListener('localScreen', ({ detail: stream }) => { $('local-screen').srcObject = stream; $('local-screen').hidden = !stream; });
 call.addEventListener('error', ({ detail }) => error(detail));
 window.addEventListener('pagehide', () => call.leave());

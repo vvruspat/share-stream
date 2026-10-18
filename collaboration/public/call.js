@@ -7,11 +7,12 @@ export class Call extends EventTarget {
     super(); this.url = url; this.id = randomId(); this.resume = randomId();
     this.active = false; this.pcs = new Map(); this.seen = new Map(); this.seq = 0;
     this.sendChain = Promise.resolve(); this.receiveChain = Promise.resolve();
-    this.screenBitrate = 1200000; this.voicePaused = false; this.bad = 0; this.good = 0;
+    this.screenBitrate = 1200000; this.voiceBitrate = 64000; this.voiceLimited = false; this.bad = 0; this.good = 0;
     this.generation = 0; this.retry = 0; this.state = 'Ready';
+    this.voiceMode = 'headphones'; this.micRequest = 0; this.micBusy = false;
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
-  changed() { this.emit('state', { state: this.state, active: this.active, peer: !!this.peer, mic: !!this.micStream?.getAudioTracks().some(t => t.enabled), screen: !!this.screenStream, voicePaused: this.voicePaused, screenBitrate: this.screenBitrate }); }
+  changed() { this.emit('state', { state: this.state, active: this.active, peer: !!this.peer, mic: !!this.micStream?.getAudioTracks().some(t => t.enabled), micBusy: this.micBusy, voiceMode: this.voiceMode, screen: !!this.screenStream, voiceLimited: this.voiceLimited, voiceBitrate: this.voiceBitrate, screenBitrate: this.screenBitrate }); }
   async join(code) {
     if (this.active) return;
     this.keys = await roomKeys(code); this.active = true; this.state = 'Connecting…'; this.changed(); this.open();
@@ -91,7 +92,10 @@ export class Call extends EventTarget {
       const entry = { pc, sender: transceiver?.sender, candidates: [], offering: false, previous: new Map() };
       this.pcs.set(channel, entry);
       pc.onicecandidate = ({ candidate }) => { if (candidate && generation === this.generation) this.signal(channel, { candidate: candidate.toJSON() }); };
-      pc.ontrack = ({ track }) => { if (generation === this.generation) this.emit('track', { channel, stream: new MediaStream([track]) }); };
+      pc.ontrack = ({ track, receiver }) => {
+        if (channel === 'voice' && 'jitterBufferTarget' in receiver) { try { receiver.jitterBufferTarget = 80; } catch { /* Keep the browser's adaptive buffer if unsupported. */ } }
+        if (generation === this.generation) this.emit('track', { channel, stream: new MediaStream([track]) });
+      };
       pc.onconnectionstatechange = () => {
         if (generation !== this.generation) return;
         const connected = [...this.pcs.values()].every(e => e.pc.connectionState === 'connected');
@@ -106,7 +110,7 @@ export class Call extends EventTarget {
     this.changed(); await this.signal('control', { type: 'ready' }); this.sendMediaState();
   }
   localTrack(channel) {
-    if (channel === 'voice') return this.voicePaused ? null : this.micStream?.getAudioTracks()[0] || null;
+    if (channel === 'voice') return this.micStream?.getAudioTracks()[0] || null;
     return this.screenStream?.getVideoTracks()[0] || null;
   }
   async offer(channel, restart = false) {
@@ -141,35 +145,74 @@ export class Call extends EventTarget {
     const p = e.sender.getParameters();
     if (!p.encodings?.length) return;
     Object.assign(p.encodings[0], channel === 'voice'
-      ? { maxBitrate: 24000, priority: 'very-low', networkPriority: 'very-low' }
-      : { maxBitrate: this.screenBitrate, maxFramerate: 15, priority: 'low', networkPriority: 'low' });
+      ? { maxBitrate: this.voiceBitrate, priority: 'low', networkPriority: 'low' }
+      : { maxBitrate: this.screenBitrate, maxFramerate: 15, priority: 'medium', networkPriority: 'medium' });
     try { await e.sender.setParameters(p); }
     catch {
       const fallback = e.sender.getParameters();
       if (!fallback.encodings?.length) return;
-      fallback.encodings[0].maxBitrate = channel === 'voice' ? 24000 : this.screenBitrate;
+      fallback.encodings[0].maxBitrate = channel === 'voice' ? this.voiceBitrate : this.screenBitrate;
       if (channel === 'screen') fallback.encodings[0].maxFramerate = 15;
       await e.sender.setParameters(fallback);
     }
   }
   async microphone(deviceId) {
     if (!this.active) throw new Error('Join the room first.');
-    const generation = this.generation;
-    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } });
-    if (!this.active || generation !== this.generation) { stream.getTracks().forEach(t => t.stop()); return; }
-    const previous = this.micStream; this.micStream = stream;
-    const track = stream.getAudioTracks()[0]; track.onended = () => { if (this.micStream === stream) this.stopMic(); };
-    try { await this.pcs.get('voice')?.sender?.replaceTrack(this.localTrack('voice')); }
-    catch (error) { this.micStream = previous; stream.getTracks().forEach(t => t.stop()); throw error; }
-    previous?.getTracks().forEach(t => t.stop());
-    await this.configureSender('voice'); this.sendMediaState(); this.changed();
+    const request = ++this.micRequest, wasEnabled = this.micStream?.getAudioTracks()[0]?.enabled ?? true;
+    this.micBusy = true;
+    // A concurrent processed stream can keep the OS voice-processing audio unit
+    // alive. Fully release it before opening the unprocessed capture path.
+    this.micStream?.getTracks().forEach(t => t.stop()); this.micStream = null;
+    this.sendMediaState(); this.changed();
+    let stream;
+    try {
+      await this.pcs.get('voice')?.sender?.replaceTrack(null);
+      if (!this.active || request !== this.micRequest) return;
+      const processed = this.voiceMode === 'speakers';
+      const audio = { channelCount: 1,
+        echoCancellation: processed ? true : { exact: false },
+        noiseSuppression: processed ? true : { exact: false },
+        autoGainControl: processed ? true : { exact: false },
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}) };
+      if (!processed && navigator.mediaDevices.getSupportedConstraints?.().voiceIsolation) audio.voiceIsolation = { exact: false };
+      try { stream = await navigator.mediaDevices.getUserMedia({ video: false, audio }); }
+      catch (error) {
+        // Some browsers advertise voiceIsolation before implementing this
+        // constraint for every device. Keep all three raw-audio requirements.
+        if (!processed && audio.voiceIsolation && (error.name === 'NotSupportedError' || (error.name === 'OverconstrainedError' && error.constraint === 'voiceIsolation'))) {
+          if (!this.active || request !== this.micRequest) return;
+          delete audio.voiceIsolation;
+          stream = await navigator.mediaDevices.getUserMedia({ video: false, audio });
+        } else throw error;
+      }
+      if (!this.active || request !== this.micRequest) { stream.getTracks().forEach(t => t.stop()); return; }
+      const track = stream.getAudioTracks()[0];
+      const settings = track.getSettings();
+      if (!processed && ['echoCancellation', 'noiseSuppression', 'autoGainControl', 'voiceIsolation'].some(key => settings[key] === true)) throw new Error('The browser kept voice processing enabled. Select Standard microphone mode in macOS or try another microphone.');
+      track.enabled = wasEnabled; this.micStream = stream;
+      track.onended = () => { if (this.micStream === stream) this.stopMic(); };
+      await this.pcs.get('voice')?.sender?.replaceTrack(this.localTrack('voice'));
+      await this.configureSender('voice'); this.sendMediaState();
+    } catch (error) {
+      stream?.getTracks().forEach(t => t.stop());
+      if (request === this.micRequest) this.micStream = null;
+      throw error;
+    } finally {
+      if (request === this.micRequest) { this.micBusy = false; this.changed(); }
+    }
+  }
+  async setVoiceMode(mode, deviceId) {
+    if (!['headphones', 'speakers'].includes(mode)) throw new Error('Invalid voice mode.');
+    if (mode === this.voiceMode) return;
+    this.voiceMode = mode; this.changed();
+    if (this.micStream || this.micBusy) await this.microphone(deviceId);
   }
   async toggleMic() {
     const track = this.micStream?.getAudioTracks()[0];
     if (!track) return this.microphone();
     track.enabled = !track.enabled; this.sendMediaState(); this.changed();
   }
-  stopMic() { this.micStream?.getTracks().forEach(t => t.stop()); this.micStream = null; this.pcs.get('voice')?.sender?.replaceTrack(null).catch(() => {}); this.sendMediaState(); this.changed(); }
+  stopMic() { ++this.micRequest; this.micBusy = false; this.micStream?.getTracks().forEach(t => t.stop()); this.micStream = null; this.pcs.get('voice')?.sender?.replaceTrack(null).catch(() => {}); this.sendMediaState(); this.changed(); }
   async shareScreen() {
     if (!this.active) throw new Error('Join the room first.');
     if (this.screenStream) { this.stopScreen(); return; }
@@ -184,7 +227,7 @@ export class Call extends EventTarget {
     this.emit('localScreen', stream); this.sendMediaState(); this.changed();
   }
   stopScreen() { this.screenStream?.getTracks().forEach(t => t.stop()); this.screenStream = null; this.pcs.get('screen')?.sender?.replaceTrack(null).catch(() => {}); this.emit('localScreen', null); this.sendMediaState(); this.changed(); }
-  sendMediaState() { return this.signal('control', { type: 'media', mic: !!this.localTrack('voice')?.enabled, screen: !!this.screenStream, voicePaused: this.voicePaused }); }
+  sendMediaState() { return this.signal('control', { type: 'media', mic: !!this.localTrack('voice')?.enabled, screen: !!this.screenStream, voiceLimited: this.voiceLimited }); }
   async measure() {
     const e = this.pcs.get('screen') || this.pcs.get('voice');
     if (!e || e.pc.connectionState !== 'connected') return;
@@ -204,12 +247,12 @@ export class Call extends EventTarget {
   }
   async applyPressure(pressure) {
     if (pressure) { this.bad++; this.good = 0; } else { this.good++; this.bad = 0; }
-    if (this.bad === 2 && !this.voicePaused) {
-      this.voicePaused = true; await this.pcs.get('voice')?.sender?.replaceTrack(null); this.sendMediaState();
+    if (this.bad === 2 && !this.voiceLimited) {
+      this.voiceLimited = true; this.voiceBitrate = 32000; await this.configureSender('voice'); this.sendMediaState();
     } else if (this.bad >= 3) {
       this.screenBitrate = Math.max(200000, Math.floor(this.screenBitrate * 0.65)); await this.configureSender('screen');
     } else if (this.good >= 5) {
-      if (this.voicePaused) { this.voicePaused = false; await this.pcs.get('voice')?.sender?.replaceTrack(this.localTrack('voice')); await this.configureSender('voice'); this.sendMediaState(); }
+      if (this.voiceLimited) { this.voiceLimited = false; this.voiceBitrate = 64000; await this.configureSender('voice'); this.sendMediaState(); }
       this.screenBitrate = Math.min(1200000, this.screenBitrate + 100000); await this.configureSender('screen');
     }
     this.changed();
@@ -217,7 +260,7 @@ export class Call extends EventTarget {
   dropPeer() {
     this.generation++;
     for (const e of this.pcs.values()) e.pc.close(); this.pcs.clear(); this.peer = null;
-    this.bad = this.good = 0; this.voicePaused = false; this.screenBitrate = 1200000;
+    this.bad = this.good = 0; this.voiceLimited = false; this.voiceBitrate = 64000; this.screenBitrate = 1200000;
     this.emit('remoteState', { mic: false, screen: false });
     this.emit('track', { channel: 'voice', stream: null }); this.emit('track', { channel: 'screen', stream: null });
   }

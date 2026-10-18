@@ -27,5 +27,17 @@ $web = $service->applications()->where('name', 'web')->firstOrFail();
 $web->fqdn = 'https://stream.whitesquirrel.digital:48101';
 $web->save();
 $service->parse();
-App\Actions\Service\StartService::dispatch($service);
+if (getenv('SHARE_STREAM_WEB_ONLY') === '1') {
+    // Queue the same Coolify remote-process activity as StartService, limited to
+    // the web app so live TURN allocations survive a frontend hotfix.
+    $service->saveComposeConfigs();
+    $service->isConfigurationChanged(save: true);
+    $workdir = escapeshellarg($service->workdir());
+    $projectName = escapeshellarg($service->uuid);
+    remote_process([
+        "docker compose --project-directory $workdir --project-name $projectName up -d --no-deps --force-recreate --build web < /dev/null",
+    ], $service->server, type_uuid: $service->uuid, callEventOnFinish: 'ServiceStartFinished', callEventData: $service->id, queue: deployment_queue());
+} else {
+    App\Actions\Service\StartService::dispatch($service);
+}
 echo json_encode(['project_uuid' => $project->uuid, 'environment_uuid' => $environment->uuid, 'service_uuid' => $service->uuid, 'status' => 'deployment queued'], JSON_PRETTY_PRINT).PHP_EOL;
