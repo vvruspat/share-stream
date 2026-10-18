@@ -2,9 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mkdir -p dist/backend
-release_args=()
-if [[ "${GITHUB_REF:-}" = refs/tags/* ]]; then release_args=(--tag "$GITHUB_REF_NAME"); fi
-python3 scripts/ci/release_info.py "${release_args[@]}" > dist/backend/manifest.json
+if [[ "${GITHUB_REF:-}" = refs/tags/* ]]; then
+  python3 scripts/ci/release_info.py --tag "$GITHUB_REF_NAME"
+else
+  python3 scripts/ci/release_info.py
+fi > dist/backend/manifest.json
 image="$(python3 -c 'import json; print(json.load(open("dist/backend/manifest.json"))["image"])')"
 docker build --platform linux/amd64 --build-arg "SHARE_STREAM_REVISION=$GITHUB_SHA" -t "$image" web
 docker save "$image" | gzip -1 > dist/backend/image.tar.gz

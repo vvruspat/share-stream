@@ -3,18 +3,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 profile="${1:?Usage: bash scripts/notarize-macos.sh KEYCHAIN_PROFILE [SUBMISSION_ID]}"
 submission="${2:-}"
-keychain_args=()
-if [ -n "${NOTARY_KEYCHAIN:-}" ]; then keychain_args=(--keychain "$NOTARY_KEYCHAIN"); fi
+notary() {
+  if [ -n "${NOTARY_KEYCHAIN:-}" ]; then
+    xcrun notarytool "$@" --keychain "$NOTARY_KEYCHAIN"
+  else
+    xcrun notarytool "$@"
+  fi
+}
 artifact_root="${DIST_ROOT:-dist}"
 mkdir -p build
 if [ -z "$submission" ]; then
-  xcrun notarytool submit "$artifact_root/ShareStream-macOS.zip" --keychain-profile "$profile" "${keychain_args[@]}" --output-format json > build/notary-submission.json
+  notary submit "$artifact_root/ShareStream-macOS.zip" --keychain-profile "$profile" --output-format json > build/notary-submission.json
   submission="$(python3 -c 'import json; print(json.load(open("build/notary-submission.json"))["id"])')"
 fi
 printf 'Notarization submission: %s\n' "$submission"
-xcrun notarytool wait "$submission" --keychain-profile "$profile" "${keychain_args[@]}" --timeout 10m --output-format json > build/notary-result.json
+notary wait "$submission" --keychain-profile "$profile" --timeout 10m --output-format json > build/notary-result.json
 python3 -c 'import json; r=json.load(open("build/notary-result.json")); print(r); assert r.get("status")=="Accepted", "Apple has not accepted this submission"'
-xcrun notarytool log "$submission" --keychain-profile "$profile" "${keychain_args[@]}" build/notary-log.json
+notary log "$submission" --keychain-profile "$profile" build/notary-log.json
 package_dir="$artifact_root/ShareStream-macOS"
 receiver_dir="$artifact_root/ShareStream-Receiver"
 for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app'; do
