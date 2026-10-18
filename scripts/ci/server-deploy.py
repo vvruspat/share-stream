@@ -59,6 +59,59 @@ def manifest_at(target, sha):
     return manifest
 
 
+def image_digests(path, manifest):
+    """Docker's classic and containerd stores expose different inspect IDs."""
+    with tarfile.open(path, 'r:gz') as archive:
+        members = archive.getmembers()
+        if len(members) > 1024 or sum(member.size for member in members) > 2 * 1024 ** 3:
+            raise ValueError('Docker archive exceeds deployment limits')
+        seen = set()
+        for member in members:
+            parts = member.name.split('/')
+            if (member.name.startswith('/') or '..' in parts or member.name in seen
+                    or not (member.isfile() or member.isdir())):
+                raise ValueError('Unexpected Docker archive member')
+            seen.add(member.name)
+
+        def read_json(name):
+            member = archive.getmember(name)
+            if not member.isfile() or member.size > 1024 * 1024:
+                raise ValueError('Invalid Docker metadata')
+            data = archive.extractfile(member).read()
+            return data, json.loads(data)
+
+        _, images = read_json('manifest.json')
+        if len(images) != 1 or images[0]['RepoTags'] != [manifest['image']]:
+            raise ValueError('Docker archive must contain only the selected Share Stream image')
+        config_bytes, config = read_json(images[0]['Config'])
+        config_digest = 'sha256:' + hashlib.sha256(config_bytes).hexdigest()
+        if config_digest != manifest['image_id']:
+            raise ValueError('Docker image configuration digest mismatch')
+        if config.get('config', {}).get('Labels', {}).get('org.opencontainers.image.revision') != manifest['sha']:
+            raise ValueError('Docker image configuration revision mismatch')
+        if config.get('os') != 'linux' or config.get('architecture') != 'amd64':
+            raise ValueError('Deployment requires a Linux amd64 image')
+        accepted = {config_digest}
+        if 'index.json' in seen:
+            _, index = read_json('index.json')
+            if len(index['manifests']) != 1:
+                raise ValueError('Expected one OCI image manifest')
+            entry = index['manifests'][0]
+            digest = entry['digest']
+            if not re.fullmatch(r'sha256:[a-f0-9]{64}', digest):
+                raise ValueError('Invalid OCI image digest')
+            raw, image = read_json('blobs/sha256/' + digest.split(':')[1])
+            if 'sha256:' + hashlib.sha256(raw).hexdigest() != digest or image['config']['digest'] != config_digest:
+                raise ValueError('OCI manifest does not match selected image configuration')
+            annotations = entry.get('annotations', {})
+            if annotations.get('io.containerd.image.name', 'docker.io/library/' + manifest['image']) != 'docker.io/library/' + manifest['image']:
+                raise ValueError('Unexpected OCI image name')
+            if annotations.get('org.opencontainers.image.ref.name', manifest['image'].split(':')[1]) != manifest['image'].split(':')[1]:
+                raise ValueError('Unexpected OCI image tag')
+            accepted.add(digest)
+        return accepted
+
+
 def run(*args, **kwargs):
     return subprocess.run(args, check=True, text=True, **kwargs)
 
@@ -85,6 +138,7 @@ def deploy(target, manifest):
         print(f'Already deployed {sha}', flush=True)
         return
     previous = subprocess.check_output(['docker', 'inspect', '--format={{.Config.Image}}', WEB], text=True).strip()
+    accepted_digests = image_digests(target / 'image.tar.gz', manifest)
     with gzip.open(target / 'image.tar.gz', 'rb') as source:
         # Docker is the image loader, not a shell. The tag is fixed by the manifest.
         loader = subprocess.Popen(['docker', 'load'], stdin=subprocess.PIPE)
@@ -96,7 +150,7 @@ def deploy(target, manifest):
             raise RuntimeError('Docker image import failed')
     image = manifest['image']
     actual = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image], text=True))[0]
-    if actual['Id'] != manifest['image_id'] or actual['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha:
+    if actual['Id'] not in accepted_digests or actual['Config'].get('Labels', {}).get('org.opencontainers.image.revision') != sha:
         raise ValueError('Loaded image revision/digest mismatch')
     old_relay = RELAY.read_bytes()
     relay_changed = old_relay != (target / 'relay.py').read_bytes()

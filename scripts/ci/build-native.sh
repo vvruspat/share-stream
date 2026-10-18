@@ -10,5 +10,5 @@ for binary in \
   'build/ShareStream_artefacts/Release/VST3/Share Stream.vst3/Contents/MacOS/Share Stream' \
   'build/ShareStream_artefacts/Release/AU/Share Stream.component/Contents/MacOS/Share Stream' \
   'build/ShareStreamReceiver_artefacts/Release/Share Stream.app/Contents/MacOS/Share Stream'; do
-  lipo -verify_arch arm64 x86_64 "$binary"
+  lipo -archs "$binary" | python3 -c 'import sys; arches = sys.stdin.read().split(); print("Verified architectures:", *arches); assert {"arm64", "x86_64"}.issubset(arches), "Expected a universal macOS binary"'
 done

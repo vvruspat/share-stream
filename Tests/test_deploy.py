@@ -54,3 +54,30 @@ class DeploymentPayloadTests(unittest.TestCase):
             (target / 'relay.py').write_bytes(b'tampered')
             with self.assertRaises(ValueError):
                 deploy.manifest_at(target, sha)
+
+    def test_classic_and_containerd_image_ids_and_foreign_tag_rejection(self):
+        sha = 'a' * 40
+        image_name = 'share-stream-call:0.3.1-' + sha[:12]
+        config = json.dumps({'os': 'linux', 'architecture': 'amd64', 'config': {
+            'Labels': {'org.opencontainers.image.revision': sha}}}).encode()
+        config_hash = hashlib.sha256(config).hexdigest()
+        image = json.dumps({'config': {'digest': 'sha256:' + config_hash}}).encode()
+        image_hash = hashlib.sha256(image).hexdigest()
+        saved = [{'Config': 'blobs/sha256/' + config_hash, 'RepoTags': [image_name]}]
+        index = {'manifests': [{'digest': 'sha256:' + image_hash}]}
+        entries = [
+            ('manifest.json', json.dumps(saved).encode(), tarfile.REGTYPE),
+            ('index.json', json.dumps(index).encode(), tarfile.REGTYPE),
+            ('blobs/sha256/' + config_hash, config, tarfile.REGTYPE),
+            ('blobs/sha256/' + image_hash, image, tarfile.REGTYPE),
+        ]
+        manifest = dict(image=image_name, image_id='sha256:' + config_hash, sha=sha)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'image.tar.gz'
+            path.write_bytes(self.archive(entries).getvalue())
+            self.assertEqual(deploy.image_digests(path, manifest),
+                             {'sha256:' + config_hash, 'sha256:' + image_hash})
+            with self.assertRaises(ValueError):
+                deploy.image_digests(path, dict(manifest, image='another-project:latest'))
+            with self.assertRaises(ValueError):
+                deploy.image_digests(path, dict(manifest, sha='b' * 40))
