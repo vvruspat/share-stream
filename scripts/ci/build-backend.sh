@@ -11,12 +11,18 @@ image="$(python3 -c 'import json; print(json.load(open("dist/backend/manifest.js
 docker build --platform linux/amd64 --build-arg "SHARE_STREAM_REVISION=$GITHUB_SHA" -t "$image" web
 docker save "$image" | gzip -1 > dist/backend/image.tar.gz
 cp server/relay.py dist/backend/relay.py
-python3 - "$image" <<'PY'
-import hashlib, json, subprocess, sys
+python3 - <<'PY'
+import hashlib, json, tarfile
 from pathlib import Path
 root = Path('dist/backend')
 manifest = json.loads((root / 'manifest.json').read_text())
-manifest['image_id'] = subprocess.check_output(['docker', 'image', 'inspect', '--format={{.Id}}', sys.argv[1]], text=True).strip()
+# Config digest is portable: Docker inspect may expose either the config digest
+# or the OCI manifest digest depending on the server's image store.
+with tarfile.open(root / 'image.tar.gz', 'r:gz') as archive:
+    images = json.load(archive.extractfile('manifest.json'))
+    assert len(images) == 1 and images[0]['RepoTags'] == [manifest['image']]
+    config = archive.extractfile(images[0]['Config']).read()
+manifest['image_id'] = 'sha256:' + hashlib.sha256(config).hexdigest()
 for name in ['image.tar.gz', 'relay.py']:
     with (root / name).open('rb') as source:
         manifest[name + '_sha256'] = hashlib.file_digest(source, 'sha256').hexdigest()
