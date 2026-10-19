@@ -24,6 +24,7 @@ private:
     State current;
     std::optional<updates::Release> release;
     bool downloading=false;
+    juce::int64 nextCheck=0;
     juce::File installer;
     std::unique_ptr<juce::ChildProcess> packageManager;
     juce::InterProcessLock updateLock {"audio.sharestream.update"};

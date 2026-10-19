@@ -109,7 +109,11 @@ void ShareStreamEditor::pasteInvite() {
 void ShareStreamEditor::timerCallback() {
     const auto updateState=updater->state();
     update.setButtonText(updateState.text);update.setEnabled(!updateState.busy);
-    if(updateState.ready)updater->launch();
+    if(updateState.ready && updater->launch()) {
+#if JUCE_MAC || JUCE_WINDOWS
+        if(processor.standalone() && juce::JUCEApplication::getInstance()!=nullptr)juce::JUCEApplication::quit();
+#endif
+    }
     lastStats=processor.statistics(); const bool running=lastStats.running;
     for(auto* field:{&server,&port,&room}) field->setReadOnly(running);
     for(auto* button:{&send,&receive,&newRoom,&paste}) button->setEnabled(!running);

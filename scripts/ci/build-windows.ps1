@@ -11,9 +11,11 @@ if (!(Test-Path $compiler)) { throw 'Inno Setup 6 is required' }
 & $compiler "/DAppVersion=$version" packaging/windows.iss
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # Smoke-test the actual installer and uninstaller, not just its generation.
-Start-Process dist/ShareStream-Setup-Windows-x64.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
+$setup = Start-Process dist/ShareStream-Setup-Windows-x64.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+if ($setup.ExitCode -ne 0) { throw "Setup failed: $($setup.ExitCode)" }
 $receiver = "$env:LOCALAPPDATA\Programs\Share Stream\Share Stream.exe"
 $vst = "$env:LOCALAPPDATA\Programs\Common\VST3\Share Stream.vst3"
 if (!(Test-Path $receiver) -or !(Test-Path $vst)) { throw 'Installer did not install both components' }
-Start-Process "$env:LOCALAPPDATA\Programs\Share Stream\unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
+$uninstall = Start-Process "$env:LOCALAPPDATA\Programs\Share Stream\unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed: $($uninstall.ExitCode)" }
 if ((Test-Path $receiver) -or (Test-Path $vst)) { throw 'Uninstaller did not remove both components' }

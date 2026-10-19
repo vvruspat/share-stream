@@ -13,6 +13,7 @@ Updater::Updater():Thread("Share Stream updates") {
     const auto settings=juce::JSON::parse(settingsFile());
     current.automatic=!settings.hasProperty("automatic") || bool(settings["automatic"]);
     const auto last=static_cast<juce::int64>(settings["checked"]);
+    nextCheck=std::max(last,juce::Time::currentTimeMillis())+24LL*60*60*1000;
     if(current.automatic && juce::Time::currentTimeMillis()-last>24LL*60*60*1000)check();
 }
 Updater::~Updater() { signalThreadShouldExit(); waitForThreadToExit(-1); }
@@ -22,6 +23,7 @@ Updater::State Updater::state() {
         current.text=packageManager->getExitCode()==0?"Updated · restart Share Stream and your DAW":"Installation cancelled or failed. Click to retry.";
         current.busy=false;packageManager.reset();
     }
+    if(current.automatic && !current.busy && juce::Time::currentTimeMillis()>=nextCheck)check();
     return current;
 }
 void Updater::setText(const juce::String& text) {const juce::ScopedLock lock(mutex);current.text=text;}
@@ -35,6 +37,7 @@ void Updater::setAutomatic(bool enabled) {
 void Updater::check(bool download) {
     const juce::ScopedLock lock(mutex);
     if(current.busy || isThreadRunning())return;
+    nextCheck=juce::Time::currentTimeMillis()+24LL*60*60*1000;
     downloading=download && release.has_value();
     current.busy=true;current.ready=false;current.text=downloading?"Downloading update...":"Checking GitHub Releases...";
     startThread(juce::Thread::Priority::low);
@@ -118,7 +121,7 @@ bool Updater::launch() {
     // files, resolves dependencies and records the new version for uninstall.
     packageManager=std::make_unique<juce::ChildProcess>();
     const bool rpm=installer.hasFileExtension("rpm");
-    const bool started=packageManager->start(juce::StringArray{"/usr/bin/pkexec",rpm?"/usr/bin/dnf":"/usr/bin/apt-get","install","-y",installer.getFullPathName()});
+    const bool started=packageManager->start(juce::StringArray{"/usr/bin/pkexec",rpm?"/usr/bin/dnf":"/usr/bin/apt-get","install","-y",installer.getFullPathName()},0);
     current.busy=started;
 #endif
     current.text=started?"Installer opened · restart Share Stream and your DAW":"Could not open installer. Click to retry.";
