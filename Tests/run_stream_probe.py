@@ -28,16 +28,23 @@ async def main(probe):
             # Measure at least three steady seconds after the two-second warmup.
             # A one-second window made a single scheduler pause dominate the 1%
             # silence threshold on shared CI hosts, even for legacy Float32.
-            child = await asyncio.create_subprocess_exec(probe, '--port', str(port), '--seconds', '6' if cycle else '5',
-                '--force-relay', forced, '--quality', quality, '--cycle-quality', '1' if cycle else '0',
-                '--expected-quality', '0' if legacy else quality, '--jitter', '40')
-            try:
-                if await asyncio.wait_for(child.wait(), timeout=20) != 0:
+            for attempt in range(3):
+                child = await asyncio.create_subprocess_exec(probe, '--port', str(port), '--seconds', '6' if cycle else '5',
+                    '--force-relay', forced, '--quality', quality, '--cycle-quality', '1' if cycle else '0',
+                    '--expected-quality', '0' if legacy else quality, '--jitter', '40')
+                try:
+                    result = await asyncio.wait_for(child.wait(), timeout=20)
+                except TimeoutError:
+                    child.kill()
+                    await child.wait()
+                    raise
+                if result == 0:
+                    break
+                if result != 77 or attempt == 2:
                     return 1
-            except TimeoutError:
-                child.kill()
-                await child.wait()
-                raise
+                print(f'Retrying descheduled callback fixture ({attempt+1}/2); audio criteria unchanged', flush=True)
+                # Every child generates a fresh room, so the previous pair
+                # cannot occupy the roles used by this retry.
         finally:
             transport.close()
     return 0

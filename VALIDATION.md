@@ -17,6 +17,13 @@
   Fixed-format cases measure three steady seconds after warmup; the original single
   second window failed on a shared macOS runner after a source scheduling overrun,
   including in the preceding main baseline. The silence limit remains 1%.
+  Callback deadline lateness is measured explicitly. A silence-only failure with
+  correct format/levels/stop behavior and a measured callback delay over 20 ms
+  returns inconclusive (77); that isolated case is retried at most twice. Real
+  assertion failures are never retried, and exhaustion still fails CI.
+  A manual runner check forced a 300 ms suspension of its own native probe and
+  verified return 77; controlled child processes verified immediate hard-failure
+  propagation, a successful isolated retry and failure after retry exhaustion.
 - Processor tests verify 0 dB remains bit-exact Send passthrough, muting local Send
   monitoring leaves the remote level intact, Listen attenuation, independent saved
   gains/quality, partner departure, role reconnection, actual editor Copy/Paste

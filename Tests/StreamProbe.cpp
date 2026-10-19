@@ -49,6 +49,7 @@ int main(int argc,char** argv) {
     }
     std::vector<Stereo> captured(static_cast<size_t>(seconds*receiveRate));
     std::atomic<unsigned> observedSender{0},observedReceiver{0};
+    double sourceLatenessMs=0,receiveLatenessMs=0;
     const auto start=std::chrono::steady_clock::now()+std::chrono::milliseconds(100);
     std::thread tx([&]{
         setAudioPriority();
@@ -56,7 +57,9 @@ int main(int argc,char** argv) {
         const int total=static_cast<int>(seconds*sendRate);
         int previousPhase=-1;
         for(int frame=0;frame<total;frame+=128) {
-            std::this_thread::sleep_until(start+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(frame/sendRate)));
+            const auto deadline=start+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(frame/sendRate));
+            std::this_thread::sleep_until(deadline);
+            if(frame>=sendRate*2)sourceLatenessMs=std::max(sourceLatenessMs,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-deadline).count());
             int n=std::min(128,total-frame);
             if(cycleQuality) {
                 const int phase=std::min(3,static_cast<int>(frame/sendRate/1.5));
@@ -77,7 +80,9 @@ int main(int argc,char** argv) {
         if(remotePeer)return;
         juce::AudioBuffer<float> audio(2,128);
         for(size_t frame=0;frame<captured.size();frame+=128) {
-            std::this_thread::sleep_until(start+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(frame/receiveRate)));
+            const auto deadline=start+std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(frame/receiveRate));
+            std::this_thread::sleep_until(deadline);
+            if(frame>=receiveRate*2)receiveLatenessMs=std::max(receiveLatenessMs,std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-deadline).count());
             const int n=static_cast<int>(std::min<size_t>(128,captured.size()-frame));audio.clear();
             receiver.process(audio.getArrayOfWritePointers(),2,n);
             observedReceiver.fetch_or(1u<<static_cast<int>(receiver.statistics().activeQuality));
@@ -106,6 +111,7 @@ int main(int argc,char** argv) {
         <<"Relay RTT "<<received.rttMs<<" ms | pulse peak "<<max<<" | synthetic one-way pulse "<<(max>0.3f ? (impulse/receiveRate-1)*1000 : -1)<<" ms (-1 = pulse lost; no hardware)\n"
         <<"Sent "<<sent.packets<<" | received "<<received.packets<<" | lost "<<received.lost<<" | late "<<received.late<<" | underruns "<<received.underruns<<" | source overruns "<<sent.overruns<<" | overruns "<<received.overruns<<" | rejected "<<received.rejected<<'\n'
         <<"RMS L "<<rmsL<<" R "<<rmsR<<" | silent samples "<<quiet<<"/"<<n<<'\n';
+    std::cout<<"Synthetic callback lateness: source "<<sourceLatenessMs<<" ms, receiver "<<receiveLatenessMs<<" ms\n";
     if(!output.empty()) {
         std::ofstream f(output,std::ios::binary);
         uint32_t dataBytes=static_cast<uint32_t>(captured.size()*8),riffSize=dataBytes+36,fmtSize=16,rate=static_cast<uint32_t>(receiveRate),byteRate=rate*8;
@@ -122,7 +128,15 @@ int main(int argc,char** argv) {
     receiver.disconnect();
     const bool qualityGood=cycleQuality ? observedSender.load()==7 && observedReceiver.load()==7
         : sent.activeQuality==expectedQuality && received.activeQuality==expectedQuality;
-    const bool good=qualityGood && rmsL>0.08 && rmsL<0.13 && rmsR>0.05 && rmsR<0.09 && quiet<n/100 && residual<0.0001f;
+    const bool validAudio=rmsL>0.08 && rmsL<0.13 && rmsR>0.05 && rmsR<0.09 && residual<0.0001f;
+    const bool good=qualityGood && validAudio && quiet<n/100;
+    // A shared VM cannot guarantee an audio deadline. Only classify a silence
+    // failure as inconclusive when the synthetic callback itself demonstrably
+    // missed its deadline by >20 ms. Codec/level/lifecycle failures stay hard failures.
+    if(!good && qualityGood && validAudio && received.rejected==0 && quiet>=n/100 && std::max(sourceLatenessMs,receiveLatenessMs)>20) {
+        std::cout<<"INCONCLUSIVE: synthetic audio callbacks were descheduled; retry this isolated case\n";
+        return 77;
+    }
     std::cout<<(good?"PASS":"FAIL")<<": stereo stream and silence after sender stops\n";
     return good?0:1;
 }

@@ -101,7 +101,7 @@ target_link_libraries(plugin_probe PRIVATE stream_core juce::juce_audio_processo
 juce_add_console_app(processor_tests PRODUCT_NAME "Share Stream Processor Tests")
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME stream_transport COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Tests/run_stream_probe.py" "$<TARGET_FILE:stream_probe>")
-set_tests_properties(stream_transport PROPERTIES TIMEOUT 120)
+set_tests_properties(stream_transport PROPERTIES TIMEOUT 240)
 target_sources(processor_tests PRIVATE Tests/ProcessorTests.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
 target_include_directories(processor_tests PRIVATE Source)
 target_link_libraries(processor_tests PRIVATE stream_core juce::juce_audio_utils)
