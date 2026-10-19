@@ -1,9 +1,13 @@
 $ErrorActionPreference = 'Stop'
 cmake -S . -B build -G 'Visual Studio 17 2022' -A x64
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+cmake --build build --config Release --target stream_probe --parallel 3
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+ctest --test-dir build -C Release -R '^stream_transport$' --output-on-failure
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 cmake --build build --config Release --parallel 3
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-ctest --test-dir build -C Release --output-on-failure
+ctest --test-dir build -C Release -E '^stream_transport$' --output-on-failure
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $version = (Select-String -Path CMakeLists.txt -Pattern 'project\(ShareStream VERSION ([\d.]+)').Matches.Groups[1].Value
 $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"

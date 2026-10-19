@@ -19,7 +19,11 @@ struct Runtime {
 };
 inline void nonblocking(Socket fd) { u_long enabled=1; ioctlsocket(fd,FIONBIO,&enabled); }
 inline void close(Socket fd) { closesocket(fd); }
-inline void wait(Socket fd) { WSAPOLLFD p {fd,POLLRDNORM,0}; WSAPoll(&p,1,1); }
+inline void wait(Socket fd) {
+    // Match JUCE's Winsock backend: select avoids WSAPoll's Windows edge cases.
+    fd_set readers;FD_ZERO(&readers);FD_SET(fd,&readers);
+    timeval timeout {0,1000};select(0,&readers,nullptr,nullptr,&timeout);
+}
 inline int send(Socket fd,const void* data,size_t size,const sockaddr_in& to) {
     return sendto(fd,static_cast<const char*>(data),static_cast<int>(size),0,reinterpret_cast<const sockaddr*>(&to),sizeof(to));
 }
