@@ -1,14 +1,36 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+static juce::AudioProcessorValueTreeState::ParameterLayout monitorParameters() {
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    for(const auto& item:std::array<std::pair<const char*,const char*>,2>{{{"sendMonitorDb","Send monitor"},{"listenMonitorDb","Listen monitor"}}})
+        layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID(item.first,1),item.second,
+            juce::NormalisableRange<float>(-60.0f,6.0f,0.1f),0.0f,
+            juce::AudioParameterFloatAttributes().withLabel("dB")
+                .withStringFromValueFunction([](float db,int){return db<=-60?juce::String("Mute"):juce::String(db,1)+" dB";})
+                .withValueFromStringFunction([](const juce::String& value){return value.equalsIgnoreCase("Mute")?-60.0f:value.getFloatValue();})));
+    return layout;
+}
+static float monitorLevel(const std::atomic<float>* value) {
+    const auto db=value->load();
+    // JUCE's normalized parameter round trip can turn the 0 dB default into a
+    // few micro-dB. Preserve the original bit-exact Send passthrough at unity.
+    if(!std::isfinite(db) || std::abs(db)<0.0001f)return 1.0f;
+    return db<=-60.0f ? 0.0f : juce::Decibels::decibelsToGain(db);
+}
 ShareStreamProcessor::ShareStreamProcessor()
   : AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true)
-                                   .withOutput("Output",juce::AudioChannelSet::stereo(),true)) {
+                                   .withOutput("Output",juce::AudioChannelSet::stereo(),true)),
+    parameters(*this,nullptr,"Monitor",monitorParameters()) {
     config.code=sharestream::newRoomCode();
+    sendMonitorValue=parameters.getRawParameterValue("sendMonitorDb");
+    listenMonitorValue=parameters.getRawParameterValue("listenMonitorDb");
     if(standalone()) config.role=sharestream::Role::receive;
     listen.store(config.role==sharestream::Role::receive);
 }
 void ShareStreamProcessor::prepareToPlay(double rate,int block) {
+    monitorGain.reset(rate,0.02);
+    monitorGain.setCurrentAndTargetValue(monitorLevel(listen.load()?listenMonitorValue:sendMonitorValue));
     engine.prepare(rate,block);
     if(connectionRequested.load() && !engine.isRunning()) engine.connect(configuration());
 }
@@ -24,7 +46,8 @@ bool ShareStreamProcessor::isBusesLayoutSupported(const BusesLayout& layout) con
 void ShareStreamProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::MidiBuffer& midi) {
     juce::ScopedNoDenormals noDenormals;
     midi.clear();
-    if(listen.load()) {
+    const bool listening=listen.load();
+    if(listening) {
         audio.clear();
         engine.process(audio.getArrayOfWritePointers(),juce::jmin(audio.getNumChannels(),getTotalNumOutputChannels()),audio.getNumSamples());
     } else {
@@ -35,10 +58,22 @@ void ShareStreamProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::Mi
         }
         engine.process(audio.getArrayOfWritePointers(),outputs,audio.getNumSamples());
     }
+    // Capture/send always happens before local monitoring gain. Turning down
+    // Send monitoring must never turn down the partner's stream.
+    monitorGain.setTargetValue(monitorLevel(listening?listenMonitorValue:sendMonitorValue));
+    for(int i=0;i<audio.getNumSamples();++i) {
+        const float gain=monitorGain.getNextValue();
+        for(int ch=0;ch<audio.getNumChannels();++ch)audio.getWritePointer(ch)[i]*=gain;
+    }
 }
 sharestream::Connection ShareStreamProcessor::configuration() const { std::lock_guard lock(configMutex); return config; }
 void ShareStreamProcessor::setConfiguration(const sharestream::Connection& value) {
-    std::lock_guard lock(configMutex); config=value; listen.store(config.role==sharestream::Role::receive);
+    bool reconnect=false;
+    { std::lock_guard lock(configMutex);reconnect=connectionRequested.load() && config.role!=value.role; }
+    if(reconnect)engine.disconnect();
+    { std::lock_guard lock(configMutex);config=value;listen.store(config.role==sharestream::Role::receive); }
+    if(reconnect)connectionRequested.store(engine.connect(value));
+    else engine.setQuality(value.quality);
 }
 bool ShareStreamProcessor::start() { const bool connected=engine.connect(configuration()); connectionRequested.store(connected); return connected; }
 void ShareStreamProcessor::stop() { connectionRequested.store(false); engine.disconnect(); }
@@ -54,6 +89,8 @@ void ShareStreamProcessor::getStateInformation(juce::MemoryBlock& data) {
     juce::XmlElement state("ShareStream");
     state.setAttribute("version",1); state.setAttribute("server",c.host); state.setAttribute("port",c.port);
     state.setAttribute("room",c.code); state.setAttribute("role",static_cast<int>(c.role)); state.setAttribute("jitter",c.jitterMs);
+    state.setAttribute("quality",static_cast<int>(c.quality));
+    for(const auto* id:{"sendMonitorDb","listenMonitorDb"})state.setAttribute(id,parameters.getRawParameterValue(id)->load());
     copyXmlToBinary(state,data);
 }
 void ShareStreamProcessor::setStateInformation(const void* data,int size) {
@@ -66,6 +103,14 @@ void ShareStreamProcessor::setStateInformation(const void* data,int size) {
     if(sharestream::parseRoom(code)) c.code=code;
     c.role=state->getIntAttribute("role",1)==2 ? sharestream::Role::receive : sharestream::Role::send;
     c.jitterMs=juce::jlimit(5,100,state->getIntAttribute("jitter",40));
+    const auto quality=state->getIntAttribute("quality",0);
+    c.quality=sharestream::validQuality(quality)?static_cast<sharestream::AudioQuality>(quality):sharestream::AudioQuality::float32;
+    for(const auto* id:{"sendMonitorDb","listenMonitorDb"}) {
+        auto* parameter=parameters.getParameter(id);
+        auto db=static_cast<float>(state->getDoubleAttribute(id,0));
+        if(!std::isfinite(db))db=0;
+        parameter->setValueNotifyingHost(parameter->convertTo0to1(juce::jlimit(-60.0f,6.0f,db)));
+    }
     setConfiguration(c);
     // Restoring a DAW session never starts a broadcast without a Connect click.
 }

@@ -34,6 +34,7 @@ def package(kind):
     for name in ['README.md', 'THIRD_PARTY.md']:
         shutil.copy2(ROOT/name, docs/name)
     shutil.copy2(ROOT/'vendor/monocypher/LICENCE.md', docs/'Monocypher-LICENCE.md')
+    shutil.copy2(ROOT/'vendor/Opus-COPYING', docs/'Opus-COPYING')
     dist = ROOT/'dist'
     dist.mkdir(exist_ok=True)
     if kind == 'deb':
@@ -56,7 +57,7 @@ def package(kind):
 Version: {version}
 Release: 1%{{?dist}}
 Summary: Private low-latency audio streaming
-License: Proprietary AND BSD-2-Clause OR CC0-1.0
+License: Proprietary AND (BSD-2-Clause OR CC0-1.0) AND BSD-3-Clause
 URL: https://github.com/vvruspat/share-stream
 Requires: alsa-lib, libcurl, fontconfig, freetype, libX11, libXext, libXcursor, libXinerama, libXrandr, ca-certificates, polkit
 %global debug_package %{{nil}}

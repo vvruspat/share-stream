@@ -12,6 +12,10 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     theme.setColour(juce::ComboBox::outlineColourId,juce::Colour(0xff34473d));
     theme.setColour(juce::PopupMenu::backgroundColourId,panel);
     theme.setColour(juce::PopupMenu::textColourId,text);
+    theme.setColour(juce::Slider::thumbColourId,green);
+    theme.setColour(juce::Slider::trackColourId,green);
+    theme.setColour(juce::Slider::textBoxTextColourId,text);
+    theme.setColour(juce::Slider::textBoxBackgroundColourId,panel);
     setLookAndFeel(&theme);
     for(auto* button:{&send,&receive,&connect,&newRoom,&copy,&paste,&collaboration}) { addAndMakeVisible(button); button->setMouseCursor(juce::MouseCursor::PointingHandCursor); }
     collaboration.onClick=[this]{
@@ -42,7 +46,21 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     for(int ms:{5,10,20,40,80,100}) buffer.addItem(juce::String(ms)+" ms",ms);
     buffer.setSelectedId(cfg.jitterMs,juce::dontSendNotification);
     buffer.onChange=[this]{saveConfiguration();};
-    for(auto* label:{&serverLabel,&portLabel,&roomLabel,&bufferLabel,&status,&hint,&stats}) {
+    addAndMakeVisible(quality);
+    for(int value=0;value<3;++value)quality.addItem(sharestream::qualityName(static_cast<sharestream::AudioQuality>(value)),value+1);
+    quality.setSelectedId(static_cast<int>(cfg.quality)+1,juce::dontSendNotification);
+    quality.setTooltip("Sender controls stream quality, including while connected. PCM 24-bit: 2.304 Mbps; Float32: 3.072 Mbps; Opus: 320 kbps (audio only, before packet overhead). PCM 24-bit and Opus clip levels above 0 dBFS. Older peers use Float32 automatically.");
+    quality.onChange=[this]{saveConfiguration();};
+    for(auto* slider:{&sendMonitor,&listenMonitor}) {
+        addAndMakeVisible(slider);slider->setSliderStyle(juce::Slider::LinearHorizontal);
+        slider->setTextBoxStyle(juce::Slider::TextBoxRight,false,78,26);
+        slider->setDoubleClickReturnValue(true,0);
+    }
+    sendMonitor.setTooltip("Your local Send monitoring only. The audio sent to your partner is unchanged. Double-click for 0 dB.");
+    listenMonitor.setTooltip("Your local Listen output only. Double-click for 0 dB.");
+    sendMonitorAttachment=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters,"sendMonitorDb",sendMonitor);
+    listenMonitorAttachment=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor.parameters,"listenMonitorDb",listenMonitor);
+    for(auto* label:{&serverLabel,&portLabel,&roomLabel,&bufferLabel,&qualityLabel,&status,&hint,&stats,&presence,&sendMonitorLabel,&listenMonitorLabel}) {
         addAndMakeVisible(label); label->setColour(juce::Label::textColourId,muted);
         label->setFont(juce::Font(juce::FontOptions(14))); label->setBorderSize(juce::BorderSize<int>(0));
     }
@@ -50,11 +68,19 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     portLabel.setText("UDP PORT",juce::dontSendNotification);
     roomLabel.setText("PRIVATE ROOM CODE",juce::dontSendNotification);
     bufferLabel.setText("MIN. NET BUFFER",juce::dontSendNotification);
+    qualityLabel.setText("STREAM QUALITY",juce::dontSendNotification);
+    sendMonitorLabel.setText("SEND / LOCAL MONITOR",juce::dontSendNotification);
+    listenMonitorLabel.setText("LISTEN / LOCAL MONITOR",juce::dontSendNotification);
+    presence.setJustificationType(juce::Justification::centredLeft);
     status.setFont(juce::Font(juce::FontOptions(18).withStyle("Bold")));
     send.onClick=[this]{auto c=processor.configuration();c.role=sharestream::Role::send;processor.setConfiguration(c);updateMode();};
     receive.onClick=[this]{auto c=processor.configuration();c.role=sharestream::Role::receive;processor.setConfiguration(c);updateMode();};
     newRoom.onClick=[this]{room.setText(sharestream::newRoomCode());};
     copy.onClick=[this]{copyInvite();}; paste.onClick=[this]{pasteInvite();};
+    copy.setTooltip("Copy the invitation and connect to this room.");
+    paste.setTooltip("Load the clipboard invitation and connect using the selected Send or Listen role.");
+    send.setTooltip("Switch this plug-in to Send. Your partner must select Listen.");
+    receive.setTooltip("Switch to Listen. Your partner must select Send.");
     connect.onClick=[this]{ if(processor.statistics().running) processor.stop(); else {saveConfiguration();processor.start();} timerCallback(); };
     connect.setColour(juce::TextButton::buttonColourId,green);
     connect.setColour(juce::TextButton::textColourOffId,background);
@@ -76,18 +102,21 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
             else if(choice==3)safe->updater->setAutomatic(!safe->updater->state().automatic);
         });
     };
-    setSize(700,624); updateMode(); startTimerHz(15); timerCallback();
+    setSize(700,750); updateMode(); startTimerHz(15); timerCallback();
 }
 ShareStreamEditor::~ShareStreamEditor() { stopTimer(); setLookAndFeel(nullptr); }
 void ShareStreamEditor::saveConfiguration() {
     auto c=processor.configuration(); c.host=server.getText().trim().toStdString();
     c.port=port.getText().getIntValue(); c.code=room.getText().trim().toStdString(); c.jitterMs=buffer.getSelectedId();
+    if(c.role==sharestream::Role::send && quality.getSelectedId()>0)c.quality=static_cast<sharestream::AudioQuality>(quality.getSelectedId()-1);
     processor.setConfiguration(c);
 }
 void ShareStreamEditor::updateMode() {
     bool listening=processor.configuration().role==sharestream::Role::receive;
     send.setToggleState(!listening,juce::dontSendNotification); receive.setToggleState(listening,juce::dontSendNotification);
-    hint.setText(listening ? "Listen to your partner. Local input stays out of the stream." : "Send this track in stereo. Local audio passes through unchanged.",juce::dontSendNotification);
+    quality.setEnabled(!listening);
+    quality.setSelectedId(static_cast<int>(listening?lastStats.activeQuality:processor.configuration().quality)+1,juce::dontSendNotification);
+    hint.setText(listening ? "Listen to your partner. Local input stays out of the stream." : "Send this track in stereo. Monitoring volume affects only your output.",juce::dontSendNotification);
     repaint();
 }
 void ShareStreamEditor::copyInvite() {
@@ -96,13 +125,18 @@ void ShareStreamEditor::copyInvite() {
     const auto link=sharestream::invitationLink({c.code,sharestream::RelayAddress{c.host,c.port}});
     if(link.empty()) {notice="Enter a valid server and UDP port first.";noticeTicks=45;return;}
     juce::SystemClipboard::copyTextToClipboard(link);
-    notice="Invite copied. One invite for music, voice and screen.";noticeTicks=60;
+    if(!processor.statistics().running && !processor.start()) {notice="Invite copied. Check the connection status below.";noticeTicks=60;return;}
+    notice="Invite copied. Music connection started; voice and screen use this room.";noticeTicks=60;
+    timerCallback();
 }
 void ShareStreamEditor::pasteInvite() {
     const auto invite=sharestream::parseInvitation(juce::SystemClipboard::getTextFromClipboard().toStdString());
     if(invite) {
-        if(invite->relay) {server.setText(invite->relay->host);port.setText(juce::String(invite->relay->port));}
-        room.setText(invite->code);notice="Invite loaded. Music, voice and screen use this room.";noticeTicks=60;return;
+        processor.stop();
+        if(invite->relay) {server.setText(invite->relay->host,false);port.setText(juce::String(invite->relay->port),false);}
+        room.setText(invite->code,false);saveConfiguration();
+        notice=processor.start()?"Invite loaded. Connecting to music, voice and screen room.":"Invite loaded. Check the connection status below.";
+        noticeTicks=60;timerCallback();return;
     }
     notice="Clipboard must contain a Share Stream invite or room code.";noticeTicks=60;
 }
@@ -116,8 +150,12 @@ void ShareStreamEditor::timerCallback() {
     }
     lastStats=processor.statistics(); const bool running=lastStats.running;
     for(auto* field:{&server,&port,&room}) field->setReadOnly(running);
-    for(auto* button:{&send,&receive,&newRoom,&paste}) button->setEnabled(!running);
+    newRoom.setEnabled(!running);
     buffer.setEnabled(!running);
+    const bool listening=processor.configuration().role==sharestream::Role::receive;
+    sendMonitor.setEnabled(!processor.standalone());
+    presence.setText(lastStats.peer ? (listening?"Sender connected":"Listener connected") : (running?"Waiting for partner":"No partner connected"),juce::dontSendNotification);
+    presence.setColour(juce::Label::textColourId,lastStats.peer?green:muted);
     connect.setButtonText(running ? "Disconnect" : "Connect");
     juce::String message;
     if(!lastStats.error.empty()) message=lastStats.error;
@@ -142,7 +180,13 @@ void ShareStreamEditor::paint(juce::Graphics& g) {
     g.setColour(juce::Colour(0xff30443a));g.fillRoundedRectangle(48,474,604,4,2);
     g.setColour(green);g.fillRoundedRectangle(48,474,604*juce::jlimit(0.0f,1.0f,level),4,2);
     g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(12)));
-    g.drawText("48 kHz  /  STEREO FLOAT32  /  2.5 ms PACKETS  /  ENCRYPTED",32,546,636,20,juce::Justification::centred);
+    const auto selected=processor.configuration().quality;
+    auto format=juce::String(sharestream::qualityName(lastStats.running?lastStats.activeQuality:selected));
+    if(lastStats.running && lastStats.peer && processor.configuration().role==sharestream::Role::send && selected!=sharestream::AudioQuality::float32 && !lastStats.qualityNegotiated)
+        format+=" (compatibility mode)";
+    g.drawText("48 kHz  /  STEREO  /  "+format+"  /  2.5 ms PACKETS  /  ENCRYPTED",32,670,636,20,juce::Justification::centred);
+    g.setColour(lastStats.peer?green:juce::Colour(0xff34473d));
+    g.fillEllipse(318,388,8,8);
 }
 void ShareStreamEditor::resized() {
     send.setBounds(32,114,142,40);receive.setBounds(180,114,142,40);
@@ -152,7 +196,11 @@ void ShareStreamEditor::resized() {
     serverLabel.setBounds(32,208,420,20);portLabel.setBounds(514,208,154,20);server.setBounds(32,234,470,46);port.setBounds(514,234,154,46);
     roomLabel.setBounds(32,296,420,20);newRoom.setBounds(546,289,122,30);room.setBounds(32,324,636,46);
     copy.setBounds(32,379,126,26);paste.setBounds(166,379,126,26);
+    presence.setBounds(334,379,334,26);
     status.setBounds(48,424,604,25);stats.setBounds(48,451,604,18);
-    bufferLabel.setBounds(32,507,148,18);buffer.setBounds(184,500,132,34);connect.setBounds(454,500,214,36);
-    update.setBounds(32,581,636,28);
+    sendMonitorLabel.setBounds(32,510,298,20);listenMonitorLabel.setBounds(364,510,304,20);
+    sendMonitor.setBounds(32,536,298,32);listenMonitor.setBounds(364,536,304,32);
+    qualityLabel.setBounds(32,583,148,20);quality.setBounds(184,576,252,34);
+    bufferLabel.setBounds(32,625,148,18);buffer.setBounds(184,618,132,34);connect.setBounds(454,618,214,36);
+    update.setBounds(32,707,636,28);
 }

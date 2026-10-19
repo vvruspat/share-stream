@@ -15,6 +15,7 @@ HEADER = struct.Struct("!4sBBH16s16sQ")
 CONTROL_SIZE, AUDIO_SIZE = 64, 1048
 HELLO, COOKIE, JOIN, READY, AUDIO, PING, PONG, LEAVE = range(1, 9)
 ENDPOINT = 9
+ENCODED_AUDIO, CAPABILITIES = 12, 13
 
 
 @dataclass
@@ -83,7 +84,7 @@ class Relay(asyncio.DatagramProtocol):
             self.transport.sendto(header+endpoint+partner.identity+bytes(10), owner.address)
 
     def datagram_received(self, data, address):
-        if len(data) not in (CONTROL_SIZE, AUDIO_SIZE):
+        if len(data) < CONTROL_SIZE or len(data) > 1200:
             return
         now = time.monotonic()
         self.global_budget = min(20000, self.global_budget+(now-self.global_at)*20000)
@@ -93,9 +94,12 @@ class Relay(asyncio.DatagramProtocol):
         self.global_budget -= 1
         header = HEADER.unpack_from(data)
         magic, kind, role, reserved, room, identity, _ = header
-        if magic != b"SST1" or role not in (1, 2) or reserved or kind not in range(1, 9):
+        if magic != b"SST1" or role not in (1, 2) or reserved or kind not in (*range(1, 9), ENCODED_AUDIO, CAPABILITIES):
             return
-        if (kind == AUDIO) != (len(data) == AUDIO_SIZE):
+        if not ((kind == AUDIO and len(data) == AUDIO_SIZE)
+                or (kind == ENCODED_AUDIO and 93 <= len(data) <= 1200)
+                or (kind == CAPABILITIES and len(data) == 104)
+                or (kind not in (AUDIO, ENCODED_AUDIO, CAPABILITIES) and len(data) == CONTROL_SIZE)):
             return
         self.cleanup(now)
         if kind == HELLO:
@@ -136,7 +140,11 @@ class Relay(asyncio.DatagramProtocol):
             self.reply(header, PONG, address)
         elif kind == LEAVE:
             self.remove(peer)
-        elif kind == AUDIO and role == 1:
+        elif kind == CAPABILITIES:
+            partner = self.rooms[room].get(3-role)
+            if partner:
+                self.transport.sendto(data, partner.address)
+        elif kind in (AUDIO, ENCODED_AUDIO) and role == 1:
             partner = self.rooms[room].get(2)
             if partner:
                 self.transport.sendto(data, partner.address)

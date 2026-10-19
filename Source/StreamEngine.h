@@ -14,12 +14,15 @@ struct Connection {
     Role role = Role::send;
     int jitterMs = 40;
     bool preferDirect = true;
+    AudioQuality quality = AudioQuality::float32;
 };
 struct Statistics {
     bool running = false, relay = false, peer = false, direct = false, waitingForAudio = false;
     double rttMs = 0, directRttMs = 0, jitterMs = 0;
     uint64_t packets = 0, lost = 0, underruns = 0, overruns = 0, rejected = 0, late = 0;
     float inputPeak = 0, outputPeak = 0;
+    AudioQuality activeQuality = AudioQuality::float32;
+    bool qualityNegotiated = false;
     std::string error;
 };
 class StreamEngine {
@@ -33,6 +36,7 @@ public:
     void process(float* const* audio, int numChannels, int numSamples) noexcept;
     Statistics statistics() const;
     bool isRunning() const noexcept;
+    void setQuality(AudioQuality);
 private:
     struct Session;
     void run(Session*);

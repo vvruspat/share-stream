@@ -1,4 +1,6 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
+#include "Invitation.h"
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -31,7 +33,7 @@ struct Relay {
     }
     ~Relay() {process.kill();}
 };
-static void receive(StreamEngine& sender,ShareStreamProcessor& receiver,double rate,int block) {
+static void receive(StreamEngine& sender,ShareStreamProcessor& receiver,double rate,int block,float gain=1) {
     for(int i=0;i<800 && (!sender.statistics().relay || !receiver.statistics().relay);++i)juce::Thread::sleep(10);
     if(!sender.statistics().relay || !receiver.statistics().relay)std::cerr<<"Handshake diagnostics: "<<sender.statistics().error<<" / "<<receiver.statistics().error<<'\n';
     check(sender.statistics().relay && receiver.statistics().relay,"both audio peers finish relay handshake");
@@ -43,7 +45,8 @@ static void receive(StreamEngine& sender,ShareStreamProcessor& receiver,double r
         for(int i=0;i<128;++i){tx.setSample(0,i,0.125f);tx.setSample(1,i,-0.25f);}
         sender.process(tx.getArrayOfWritePointers(),2,128);
         rx.clear();receiver.processBlock(rx,midi);
-        if(iteration>375 && rx.getMagnitude(0,0,block)>0.05f && rx.getSample(1,block-1)<-0.1f)++audible;
+        if(iteration>375 && std::abs(rx.getSample(0,block-1)-.125f*gain)<.02f*gain
+            && std::abs(rx.getSample(1,block-1)+.25f*gain)<.03f*gain)++audible;
     }
     if(audible<=250) {
         const auto txStats=sender.statistics(),rxStats=receiver.statistics();
@@ -55,9 +58,88 @@ static void receive(StreamEngine& sender,ShareStreamProcessor& receiver,double r
     check(receiver.statistics().packets>100,"plugin receives authenticated packets");
     std::cout<<"PASS: Listen at "<<rate<<" Hz, "<<block<<" frames, "<<audible<<" audible steady blocks\n";
 }
+static void setGain(ShareStreamProcessor& processor,const char* id,float db) {
+    auto* value=processor.parameters.getParameter(id);
+    value->setValueNotifyingHost(value->convertTo0to1(db));
+}
+static void monitoring(Relay& relay) {
+    ShareStreamProcessor sender;StreamEngine receiver;
+    sender.prepareToPlay(48000,128);receiver.prepare(48000,128);
+    Connection c;c.host="127.0.0.1";c.port=relay.port;c.code=newRoomCode();c.jitterMs=10;
+    sender.setConfiguration(c);check(sender.start(),"connect processor sender for independent monitoring test");
+    c.role=Role::receive;check(receiver.connect(c),"connect monitoring test receiver");
+    for(int i=0;i<800 && (!sender.statistics().peer || !receiver.statistics().peer);++i)juce::Thread::sleep(10);
+    check(sender.statistics().peer && receiver.statistics().peer,"both sides report partner presence");
+    juce::AudioBuffer<float> tx(2,128),rx(2,128);juce::MidiBuffer midi;
+    int localMuted=0,remoteAudible=0;
+    auto start=std::chrono::steady_clock::now();
+    for(int iteration=0;iteration<750;++iteration) {
+        std::this_thread::sleep_until(start+std::chrono::microseconds(iteration*8000/3));
+        if(iteration==375)setGain(sender,"sendMonitorDb",-60);
+        for(int i=0;i<128;++i){tx.setSample(0,i,.125f);tx.setSample(1,i,-.25f);}
+        sender.processBlock(tx,midi);rx.clear();receiver.process(rx.getArrayOfWritePointers(),2,128);
+        if(iteration>450) {
+            if(tx.getMagnitude(0,128)==0)++localMuted;
+            if(rx.getMagnitude(0,0,128)>.1f && rx.getSample(1,127)<-.2f)++remoteAudible;
+        }
+    }
+    check(localMuted>250 && remoteAudible>250,"muted Send monitoring leaves the authenticated remote stream at its original level");
+    sender.stop();
+    for(int i=0;i<800 && receiver.statistics().peer;++i)juce::Thread::sleep(10);
+    check(!receiver.statistics().peer,"listener detects sender departure without disconnecting itself");
+    receiver.disconnect();
+    setGain(sender,"sendMonitorDb",-6);setGain(sender,"listenMonitorDb",-12);
+    c=sender.configuration();c.quality=AudioQuality::pcm24;sender.setConfiguration(c);
+    juce::MemoryBlock state;sender.getStateInformation(state);
+    ShareStreamProcessor restored;restored.setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+    check(std::abs(restored.parameters.getRawParameterValue("sendMonitorDb")->load()+6)<.01f
+        && std::abs(restored.parameters.getRawParameterValue("listenMonitorDb")->load()+12)<.01f
+        && restored.configuration().quality==AudioQuality::pcm24,"independent monitoring and stream quality persist in DAW state");
+    restored.prepareToPlay(48000,128);
+    for(int i=0;i<128;++i){tx.setSample(0,i,.125f);tx.setSample(1,i,-.25f);}
+    restored.processBlock(tx,midi);
+    check(std::abs(tx.getSample(0,127)-.125f*juce::Decibels::decibelsToGain(-6.0f))<1e-6f,"restored Send monitoring gain applies while disconnected");
+    std::cout<<"PASS: independent local monitoring, mute, unity remote level, departure and persisted settings\n";
+}
+static void invitationActions(Relay& relay) {
+    ShareStreamProcessor processor;processor.prepareToPlay(48000,128);
+    auto c=processor.configuration();c.host="127.0.0.1";c.port=relay.port;processor.setConfiguration(c);
+    const auto previousClipboard=juce::SystemClipboard::getTextFromClipboard();
+    struct RestoreClipboard {juce::String value;~RestoreClipboard(){juce::SystemClipboard::copyTextToClipboard(value);}} restore{previousClipboard};
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    auto click=[&](const juce::String& title) {
+        for(auto* child:editor->getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child))
+            if(button->getButtonText()==title) {check(button->isEnabled(),"live role/invite action remains enabled");button->onClick();return;}
+        check(false,"public editor button exists");
+    };
+    click("Copy invite");
+    check(processor.statistics().running,"Copy invite starts the current room without a second Connect click");
+    check(parseInvitation(juce::SystemClipboard::getTextFromClipboard().toStdString())->code==c.code,"copied invitation preserves the unified room token");
+    click("Listen");
+    check(processor.statistics().running && processor.configuration().role==Role::receive && processor.configuration().code==c.code,"live role change reconnects in the same room");
+    click("Send");
+    check(processor.statistics().running && processor.configuration().role==Role::send,"reverse role change does not require manual Disconnect/Connect");
+    const auto secondRoom=newRoomCode();
+    juce::SystemClipboard::copyTextToClipboard(invitationLink({secondRoom,RelayAddress{"127.0.0.1",relay.port}}));
+    click("Paste invite");
+    check(processor.statistics().running && processor.configuration().code==secondRoom,"Paste invite switches the room and connects in one action");
+    juce::SystemClipboard::copyTextToClipboard("invalid invite");click("Paste invite");
+    check(processor.statistics().running && processor.configuration().code==secondRoom,"invalid paste does not stop a live session");
+    processor.stop();
+    std::cout<<"PASS: public Copy/Paste actions auto-connect, live roles preserve room, malformed invite leaves session intact\n";
+}
 int main(int argc,char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
+        if(argc==3 && std::string(argv[1])=="--snapshot") {
+            ShareStreamProcessor preview;
+            std::unique_ptr<juce::AudioProcessorEditor> editor(preview.createEditor());
+            auto image=editor->createComponentSnapshot(editor->getLocalBounds());
+            juce::FileOutputStream output{juce::File(argv[2])};
+            check(output.openedOk(),"open editor preview image");
+            check(juce::PNGImageFormat().writeImageToStream(image,output),"write editor preview image");
+            return 0;
+        }
         ShareStreamProcessor processor;
         check(std::isinf(processor.getTailLengthSeconds()),"network source must not advertise a zero tail");
         auto layout=processor.getBusesLayout();
@@ -76,6 +158,8 @@ int main(int argc,char** argv) {
         check(processor.statistics().waitingForAudio,"host release retains user connection intent");
         processor.prepareToPlay(48000,128);receive(sender,processor,48000,128);
         processor.prepareToPlay(96000,256);receive(sender,processor,96000,256);
+        setGain(processor,"listenMonitorDb",-6);
+        receive(sender,processor,96000,256,juce::Decibels::decibelsToGain(-6.0f));
         processor.stop();processor.releaseResources();processor.prepareToPlay(48000,128);
         check(!processor.statistics().running,"explicit Disconnect never auto-reconnects");
         juce::MemoryBlock saved;processor.getStateInformation(saved);
@@ -84,6 +168,8 @@ int main(int argc,char** argv) {
         processor.prepareToPlay(48000,128);
         check(!processor.statistics().running,"session restore still requires explicit Connect");
         sender.disconnect();
+        monitoring(relay);
+        invitationActions(relay);
         if(argc==3) {
             juce::ChildProcess host;
             check(host.start(juce::StringArray{argv[1],argv[2],"--network",juce::String(relay.port)}),"start actual VST3 host probe");

@@ -35,6 +35,14 @@ This builds universal arm64/x86_64 plugins and receiver, runs native/relay tests
 
 Keep music transport separate from browser screen and voice. Do not start connections or capture merely because the DAW restores a project. Preserve compatibility with existing invitation links and test cross-language protocol changes against the shared fixtures.
 
+`AudioCodec` links the pinned libopus source statically. Encoding/decoding and encryption
+run on the network worker, never in the audio callback. The encoded packet metadata
+is authenticated; Opus frames must be exactly 120 stereo samples and are decoded in
+playout sequence after reordering. The Float32 packet remains unchanged. New codecs
+require fresh encrypted capabilities from the registered partner through the relay;
+absence/expiry falls back to Float32. Monitor automation applies after capturing the
+raw Send source. The transport fixture tests each quality, live switches and a legacy relay.
+
 Before publishing, run the checks and inspect the diff for room codes, credentials and generated artifacts. The GitHub CI uses no production or Apple credentials for pull requests. Third-party license requirements are documented in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 

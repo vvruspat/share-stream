@@ -1,4 +1,40 @@
-# Share Stream 0.3.1 — validation, 2026-10-18
+# Share Stream — validation
+
+## Stream controls and quality (unreleased, 2026-10-19)
+
+- Universal arm64/x86_64 VST3, AU and receiver build locally. Six native CTests pass:
+  core protocol, codecs, transport, processor receive/monitoring, actual VST3 host,
+  and updater/install contracts. All 18 Python tests pass.
+- PCM24 round trips within half an LSB; clipping, nonfinite input, tampering, wrong
+  keys and truncation are covered. Stereo Opus CBR is exactly 100 audio bytes per
+  2.5 ms frame (320 kbps). Synthetic two-tone codec SNR is approximately 42.5 dB;
+  this is a limited signal fixture, not a perceptual music-quality measurement.
+- Nine real UDP scenarios pass: Float32/PCM24/Opus via P2P and forced relay,
+  all three formats switched live on both paths, and an old relay that drops new
+  packet kinds. That last case stays audible using Float32. Tests use the default
+  40 ms network buffer and verify stereo energy, silence bounds and eventual silence
+  after sender stop. They exclude physical audio interfaces and human-operated DAWs.
+  Fixed-format cases measure three steady seconds after warmup; the original single
+  second window failed on a shared macOS runner after a source scheduling overrun,
+  including in the preceding main baseline. The silence limit remains 1%.
+  Callback deadline lateness is measured explicitly. A silence-only failure with
+  correct format/levels/stop behavior and a measured callback delay over 20 ms
+  returns inconclusive (77); that isolated case is retried at most twice. Real
+  assertion failures are never retried, and exhaustion still fails CI.
+  A manual runner check forced a 300 ms suspension of its own native probe and
+  verified return 77; controlled child processes verified immediate hard-failure
+  propagation, a successful isolated retry and failure after retry exhaustion.
+- Processor tests verify 0 dB remains bit-exact Send passthrough, muting local Send
+  monitoring leaves the remote level intact, Listen attenuation, independent saved
+  gains/quality, partner departure, role reconnection, actual editor Copy/Paste
+  auto-connect and malformed paste preserving an active session. Session restore
+  still never broadcasts automatically. Monitor smoothing is 20 ms.
+- The 700x750 editor was rendered from the compiled C++ component and visually
+  inspected. The standalone remains output-only; no microphone capture was added.
+- libopus is pinned and static; its complete notice is packaged in macOS bundles,
+  Windows installations and Linux documentation. CI validates the native platform
+  builds/installers separately. These source changes are not yet a public release
+  and were not installed into or substituted for the user's running DAW/receiver.
 
 ## 0.3.1 Listen and unified invitation
 

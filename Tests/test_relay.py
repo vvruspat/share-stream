@@ -66,6 +66,44 @@ class RelayTests(unittest.TestCase):
         self.assertFalse(self.server.rooms)
         self.assertEqual(self.join(b, peer=b"b"*16)[48], 0)
 
+    def test_new_quality_and_capabilities_only_reach_the_registered_partner(self):
+        a, b, attacker = ("127.0.0.1", 1), ("127.0.0.1", 2), ("127.0.0.1", 3)
+        self.join(a)
+        self.join(b, 2, b"b"*16)
+        for size in (192, 812):
+            audio = self.wire(relay.ENCODED_AUDIO, body=bytes(size-48))
+            before = len(self.server.transport.sent)
+            self.server.datagram_received(audio, attacker)
+            self.assertEqual(before, len(self.server.transport.sent))
+            self.server.datagram_received(audio, a)
+            self.assertEqual(self.server.transport.sent[-1], (audio, b))
+        for role, identity, source, target in ((1, b"a"*16, a, b), (2, b"b"*16, b, a)):
+            caps = self.wire(relay.CAPABILITIES, role, identity, body=bytes(56))
+            self.server.datagram_received(caps, source)
+            self.assertEqual(self.server.transport.sent[-1], (caps, target))
+        before = len(self.server.transport.sent)
+        for kind, role, identity, source, size in (
+            (relay.ENCODED_AUDIO, 2, b"b"*16, b, 812),
+            (relay.ENCODED_AUDIO, 1, b"a"*16, a, 92),
+            (relay.ENCODED_AUDIO, 1, b"a"*16, a, 1201),
+            (relay.CAPABILITIES, 1, b"a"*16, a, 64),
+            (relay.PING, 1, b"a"*16, a, 1048),
+        ):
+            self.server.datagram_received(self.wire(kind, role, identity, body=bytes(size-48)), source)
+        self.assertEqual(before, len(self.server.transport.sent))
+
+    def test_both_peers_can_exchange_roles_without_changing_the_room(self):
+        a, b = ("127.0.0.1", 1), ("127.0.0.1", 2)
+        self.join(a)
+        self.join(b, 2, b"b"*16)
+        self.server.datagram_received(self.wire(relay.LEAVE), a)
+        self.server.datagram_received(self.wire(relay.LEAVE, 2, b"b"*16), b)
+        self.assertEqual(self.join(a, 2)[48], 0)
+        self.assertEqual(self.join(b, 1, b"b"*16)[48], 0)
+        audio = self.wire(relay.AUDIO, 1, b"b"*16, body=bytes(relay.AUDIO_SIZE-48))
+        self.server.datagram_received(audio, b)
+        self.assertEqual(self.server.transport.sent[-1], (audio, a))
+
     def test_expiration_and_malformed_packets(self):
         self.join(("127.0.0.1", 1))
         peer = next(iter(self.server.peers.values()))

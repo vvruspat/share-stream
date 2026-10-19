@@ -32,11 +32,15 @@ public:
     void stop();
     sharestream::Statistics statistics() const;
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
+    juce::AudioProcessorValueTreeState parameters;
 private:
     sharestream::StreamEngine engine;
     mutable std::mutex configMutex;
     sharestream::Connection config;
     std::atomic<bool> listen {false};
     std::atomic<bool> connectionRequested {false};
+    juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> monitorGain {1.0f};
+    const std::atomic<float>* sendMonitorValue=nullptr;
+    const std::atomic<float>* listenMonitorValue=nullptr;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ShareStreamProcessor)
 };
