@@ -12,7 +12,7 @@
 
 Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
 Default relay: **13.140.153.191:48100 UDP**.
-Version **0.4.0** adds GitHub Releases updates and combined installers.
+Version **0.4.1** adds GitHub Releases updates and combined installers.
 Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
 One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
 The browser service uses React, TypeScript and Vite+, with styled Radix UI controls
@@ -34,7 +34,7 @@ and Heroicons. Unprocessed headphone capture remains the default.
 - **Ubuntu 24.04+ x86_64:** install `ShareStream-Ubuntu-amd64.deb`.
 - **Fedora 44+ x86_64:** install `ShareStream-Fedora-x86_64.rpm`.
 
-From 0.4.0, the plug-in and receiver check GitHub Releases daily and offer **Download and install update**. Save your session and restart the DAW/receiver afterwards. 0.3.1 needs this first installation manually. [Installation paths, update behavior and rollback](docs/updates.md).
+From 0.4.1, the plug-in and receiver check GitHub Releases daily and offer **Download and install update**. Save your session and restart the DAW/receiver afterwards. 0.3.1 needs this first installation manually. [Installation paths, update behavior and rollback](docs/updates.md).
 
 ## Быстрый старт
 
