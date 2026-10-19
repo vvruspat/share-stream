@@ -3,7 +3,7 @@
 # Retry the operation, preserving its final exit status and all validation gates.
 retry_apple() {
   local attempt=1 status=0
-  local maximum="${APPLE_RETRY_ATTEMPTS:-3}" delay="${APPLE_RETRY_DELAY:-3}"
+  local maximum="${APPLE_RETRY_ATTEMPTS:-5}" delay="${APPLE_RETRY_DELAY:-3}"
   while true; do
     if "$@"; then return 0; else status=$?; fi
     if [ "$attempt" -ge "$maximum" ]; then return "$status"; fi
