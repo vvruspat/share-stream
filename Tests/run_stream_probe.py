@@ -25,7 +25,10 @@ async def main(probe):
         transport, _ = await loop.create_datagram_endpoint(LegacyRelay if legacy else Relay, local_addr=('127.0.0.1', 0))
         port = transport.get_extra_info('sockname')[1]
         try:
-            child = await asyncio.create_subprocess_exec(probe, '--port', str(port), '--seconds', '6' if cycle else '3',
+            # Measure at least three steady seconds after the two-second warmup.
+            # A one-second window made a single scheduler pause dominate the 1%
+            # silence threshold on shared CI hosts, even for legacy Float32.
+            child = await asyncio.create_subprocess_exec(probe, '--port', str(port), '--seconds', '6' if cycle else '5',
                 '--force-relay', forced, '--quality', quality, '--cycle-quality', '1' if cycle else '0',
                 '--expected-quality', '0' if legacy else quality, '--jitter', '40')
             try:

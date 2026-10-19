@@ -14,6 +14,9 @@
   packet kinds. That last case stays audible using Float32. Tests use the default
   40 ms network buffer and verify stereo energy, silence bounds and eventual silence
   after sender stop. They exclude physical audio interfaces and human-operated DAWs.
+  Fixed-format cases measure three steady seconds after warmup; the original single
+  second window failed on a shared macOS runner after a source scheduling overrun,
+  including in the preceding main baseline. The silence limit remains 1%.
 - Processor tests verify 0 dB remains bit-exact Send passthrough, muting local Send
   monitoring leaves the remote level intact, Listen attenuation, independent saved
   gains/quality, partner departure, role reconnection, actual editor Copy/Paste
