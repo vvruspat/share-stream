@@ -94,6 +94,8 @@ endif()
 add_executable(update_tests Tests/UpdateTests.cpp)
 target_link_libraries(update_tests PRIVATE stream_core)
 add_test(NAME updater_contract_and_install COMMAND update_tests)
+add_executable(update_probe EXCLUDE_FROM_ALL Tests/UpdateProbe.cpp)
+target_link_libraries(update_probe PRIVATE stream_core)
 
 set(SHARE_STREAM_INSTALLER_PAYLOAD "" CACHE FILEPATH "Signed, stapled payload ZIP for the macOS installer")
 if(APPLE AND SHARE_STREAM_INSTALLER_PAYLOAD)

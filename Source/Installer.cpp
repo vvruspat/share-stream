@@ -18,7 +18,7 @@ juce::File payloadArchive() {
 }
 class Setup final : public juce::Component,private juce::Thread,private juce::Timer {
 public:
-    explicit Setup(bool update):Thread("Share Stream installer") {
+    explicit Setup(bool update,bool reopen):Thread("Share Stream installer"),reopenReceiver(update && reopen) {
         setSize(580,360);
         title.setText("Share Stream",juce::dontSendNotification);title.setFont(juce::Font(juce::FontOptions(34).withStyle("Bold")));
         details.setText("Install " SHARE_STREAM_VERSION "\n\nStandalone receiver / VST3 / Audio Unit\nFor this user. No administrator password needed.\n\nSave your session. Restart the DAW and standalone after installation.",juce::dontSendNotification);
@@ -55,9 +55,13 @@ private:
         done=result.wasOk();
         details.setText(done?"Installed " SHARE_STREAM_VERSION ".\n\nThe standalone receiver, VST3 and Audio Unit are ready.\nRestart your DAW and any open standalone window.\nYour room and audio output settings are preserved.":result.getErrorMessage(),juce::dontSendNotification);
         button.setButtonText(done?"Open Share Stream":"Retry installation");
+        if(done && reopenReceiver)juce::Timer::callAfterDelay(1000,[safe=juce::Component::SafePointer<Setup>(this)]{
+            if(safe) {safe->app().startAsProcess();juce::JUCEApplication::quit();}
+        });
     }
     juce::Label title,details;juce::TextButton button;
     juce::Result result=juce::Result::ok();bool done=false;
+    bool reopenReceiver=false;
 };
 class Installer final:public juce::JUCEApplication {
 public:
@@ -71,7 +75,7 @@ public:
                 if(result.wasOk())result=signature(temp.getChildFile(name));
             temp.deleteRecursively();setApplicationReturnValue(result.wasOk()?0:1);quit();return;
         }
-        window=std::make_unique<Window>();window->setContentOwned(new Setup(args.contains("--update")),true);
+        window=std::make_unique<Window>();window->setContentOwned(new Setup(args.contains("--update"),args.contains("--reopen-receiver")),true);
         window->centreWithSize(580,360);window->setVisible(true);
     }
     void shutdown() override {window.reset();}

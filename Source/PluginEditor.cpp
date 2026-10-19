@@ -109,7 +109,7 @@ void ShareStreamEditor::pasteInvite() {
 void ShareStreamEditor::timerCallback() {
     const auto updateState=updater->state();
     update.setButtonText(updateState.text);update.setEnabled(!updateState.busy);
-    if(updateState.ready && updater->launch()) {
+    if(updateState.ready && updater->launch(processor.standalone())) {
 #if JUCE_MAC || JUCE_WINDOWS
         if(processor.standalone() && juce::JUCEApplication::getInstance()!=nullptr)juce::JUCEApplication::quit();
 #endif

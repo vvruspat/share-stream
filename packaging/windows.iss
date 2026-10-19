@@ -34,7 +34,13 @@ Name: "{group}\Share Stream"; Filename: "{app}\Share Stream.exe"
 Name: "{group}\Uninstall Share Stream"; Filename: "{uninstallexe}"
 [Run]
 Filename: "{app}\Share Stream.exe"; Description: "Open Share Stream"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Share Stream.exe"; Flags: nowait skipifnotsilent; Check: ReopenReceiver
 [Code]
+function ReopenReceiver: Boolean;
+begin
+  Result := ExpandConstant('{param:REOPENRECEIVER|0}') = '1';
+end;
+
 function FileUnavailable(const FileName: String): Boolean;
 var
   Stream: TFileStream;

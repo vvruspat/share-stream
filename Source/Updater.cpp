@@ -9,12 +9,12 @@ static std::unique_ptr<juce::InputStream> open(const juce::String& url,int& stat
 juce::File Updater::settingsFile() const {
     return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Share Stream/updates.json");
 }
-Updater::Updater():Thread("Share Stream updates") {
+Updater::Updater(juce::String runningVersion,bool checkOnStartup):Thread("Share Stream updates"),installedVersion(std::move(runningVersion)) {
     const auto settings=juce::JSON::parse(settingsFile());
     current.automatic=!settings.hasProperty("automatic") || bool(settings["automatic"]);
     const auto last=static_cast<juce::int64>(settings["checked"]);
     nextCheck=std::max(last,juce::Time::currentTimeMillis())+24LL*60*60*1000;
-    if(current.automatic && juce::Time::currentTimeMillis()-last>24LL*60*60*1000)check();
+    if(checkOnStartup && current.automatic && juce::Time::currentTimeMillis()-last>24LL*60*60*1000)check();
 }
 Updater::~Updater() { signalThreadShouldExit(); waitForThreadToExit(-1); }
 Updater::State Updater::state() {
@@ -56,12 +56,12 @@ void Updater::run() {
             stream->readIntoMemoryBlock(json,2*1024*1024);
             const auto data=juce::JSON::parse(json.toString());
             if(!data.isObject() || !data.hasProperty("tag_name"))throw juce::String("Invalid release response. Try again later.");
-            auto latest=updates::parseRelease(data,SHARE_STREAM_VERSION,updates::platformAsset());
+            auto latest=updates::parseRelease(data,installedVersion,updates::platformAsset());
             const auto candidate=data["tag_name"].toString().substring(1);
-            if(updates::newer(candidate,SHARE_STREAM_VERSION) && !latest)throw juce::String("Release installer is not ready for this platform.");
+            if(updates::newer(candidate,installedVersion) && !latest)throw juce::String("Release installer is not ready for this platform.");
             {
                 const juce::ScopedLock lock(mutex);release=latest;current.available=latest.has_value();
-                current.text=latest?"Install update "+latest->version:"Up to date / " SHARE_STREAM_VERSION;
+                current.text=latest?"Install update "+latest->version:"Up to date / "+installedVersion;
                 juce::DynamicObject::Ptr obj=new juce::DynamicObject();
                 obj->setProperty("automatic",current.automatic);obj->setProperty("checked",juce::Time::currentTimeMillis());
                 settingsFile().getParentDirectory().createDirectory();settingsFile().replaceWithText(juce::JSON::toString(juce::var(obj.get())));
@@ -107,16 +107,19 @@ void Updater::run() {
       catch(...) {setText("Update failed. Click to retry.");}
     finish();
 }
-bool Updater::launch() {
+bool Updater::launch(bool reopenReceiver) {
     const juce::ScopedLock lock(mutex);
     if(!current.ready)return false;
     current.ready=false;
 #if JUCE_MAC
     juce::ChildProcess process;
-    const bool started=process.start(juce::StringArray{"/usr/bin/open","-n",installer.getFullPathName(),"--args","--update"});
+    juce::StringArray args {"/usr/bin/open","-n",installer.getFullPathName(),"--args","--update"};
+    if(reopenReceiver)args.add("--reopen-receiver");
+    const bool started=process.start(args);
 #elif JUCE_WINDOWS
-    const bool started=installer.startAsProcess("/SILENT /NORESTART /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS");
+    const bool started=installer.startAsProcess(juce::String("/SILENT /NORESTART /NOCLOSEAPPLICATIONS /NORESTARTAPPLICATIONS")+(reopenReceiver?" /REOPENRECEIVER=1":""));
 #else
+    juce::ignoreUnused(reopenReceiver);
     // Polkit authenticates the owner; the distro package manager owns these
     // files, resolves dependencies and records the new version for uninstall.
     packageManager=std::make_unique<juce::ChildProcess>();
