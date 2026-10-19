@@ -5,11 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <poll.h>
-#include <sys/socket.h>
-#include <unistd.h>
+#include "NetworkSocket.h"
 #if defined(__APPLE__)
 #include <pthread.h>
 #endif
@@ -155,28 +151,31 @@ void StreamEngine::run(Session* s) {
 #if defined(__APPLE__)
     pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE,0);
 #endif
+    net::Runtime runtime;
+    if(!runtime.okay) { setError("Cannot initialize UDP networking."); return; }
     addrinfo hints {}; hints.ai_family=AF_INET; hints.ai_socktype=SOCK_DGRAM;
     addrinfo* address=nullptr;
     const auto port=std::to_string(s->config.port);
     if(getaddrinfo(s->config.host.c_str(),port.c_str(),&hints,&address)!=0) { setError("Cannot resolve server address."); return; }
-    const int fd=socket(address->ai_family,SOCK_DGRAM,0);
-    if(fd<0) { freeaddrinfo(address); setError("Cannot create UDP socket."); return; }
+    const auto fd=socket(address->ai_family,SOCK_DGRAM,0);
+    if(fd==net::invalid) { freeaddrinfo(address); setError("Cannot create UDP socket."); return; }
+    net::nonblocking(fd);
     // Best-effort EF marking for the time-critical music stream, above screen/voice.
     // Networks may ignore DSCP; failure here must never prevent streaming.
     const int musicTos=46<<2;
-    setsockopt(fd,IPPROTO_IP,IP_TOS,&musicTos,sizeof(musicTos));
+    net::option(fd,IPPROTO_IP,IP_TOS,musicTos);
 #if defined(__APPLE__) && defined(SO_NET_SERVICE_TYPE)
     const int musicService=NET_SERVICE_TYPE_VO;
-    setsockopt(fd,SOL_SOCKET,SO_NET_SERVICE_TYPE,&musicService,sizeof(musicService));
+    net::option(fd,SOL_SOCKET,SO_NET_SERVICE_TYPE,musicService);
 #endif
     sockaddr_in relayAddress=*reinterpret_cast<sockaddr_in*>(address->ai_addr);
     sockaddr_in local {};local.sin_family=AF_INET;local.sin_addr.s_addr=INADDR_ANY;
-    if(bind(fd,reinterpret_cast<const sockaddr*>(&local),sizeof(local))!=0) {close(fd);freeaddrinfo(address);setError("Cannot bind UDP socket.");return;}
+    if(bind(fd,reinterpret_cast<const sockaddr*>(&local),sizeof(local))!=0) {net::close(fd);freeaddrinfo(address);setError("Cannot bind UDP socket.");return;}
     freeaddrinfo(address);
-    int bytes=262144; setsockopt(fd,SOL_SOCKET,SO_RCVBUF,&bytes,sizeof(bytes));
+    int bytes=262144; net::option(fd,SOL_SOCKET,SO_RCVBUF,bytes);
     auto sendControl=[&](Kind kind,uint64_t sequence=0) {
         auto wire=control({kind,s->config.role,s->room.id,s->peer,sequence});
-        sendto(fd,wire.data(),wire.size(),0,reinterpret_cast<const sockaddr*>(&relayAddress),sizeof(relayAddress));
+        net::send(fd,wire.data(),wire.size(),relayAddress);
     };
     juce::WindowedSincInterpolator sendL,sendR;
     const double ratio=s->rate/48000.0;
@@ -199,15 +198,14 @@ void StreamEngine::run(Session* s) {
         s->direct.store(s->config.preferDirect && haveEndpoint && now-lastDirectReply<1500);
         if(s->config.preferDirect && haveEndpoint && now-lastDirectProbe>=250) {
             auto probe=encryptProbe({Kind::directPing,s->config.role,s->room.id,s->peer,static_cast<uint64_t>(now*1000)},s->room.key);
-            sendto(fd,probe.data(),probe.size(),0,reinterpret_cast<const sockaddr*>(&peerAddress),sizeof(peerAddress));lastDirectProbe=now;
+            net::send(fd,probe.data(),probe.size(),peerAddress);lastDirectProbe=now;
         }
-        pollfd poller {fd,POLLIN,0};
-        poll(&poller,1,1);
+        net::wait(fd);
         // Bounded drain prevents a busy socket from starving audio transmission.
         for(int received=0; received<64; ++received) {
             std::array<uint8_t,1200> wire {};
-            sockaddr_in source {};socklen_t sourceSize=sizeof(source);
-            const auto n=recvfrom(fd,wire.data(),wire.size(),MSG_DONTWAIT,reinterpret_cast<sockaddr*>(&source),&sourceSize);
+            sockaddr_in source {};
+            const auto n=net::receive(fd,wire.data(),wire.size(),source);
             if(n<=0) break;
             auto h=readHeader(wire.data(),static_cast<size_t>(n));
             if(!h || h->room!=s->room.id) continue;
@@ -227,7 +225,7 @@ void StreamEngine::run(Session* s) {
                 if(!authenticateProbe(wire.data(),static_cast<size_t>(n),s->room.key))continue;
                 if(h->kind==Kind::directPing) {
                     auto response=encryptProbe({Kind::directPong,s->config.role,s->room.id,s->peer,h->sequence},s->room.key);
-                    sendto(fd,response.data(),response.size(),0,reinterpret_cast<const sockaddr*>(&source),sizeof(source));
+                    net::send(fd,response.data(),response.size(),source);
                 } else {
                     const double rtt=milliseconds()-h->sequence/1000.0;
                     if(rtt>=0 && rtt<1500) {lastDirectReply=milliseconds();peerAddress=source;s->directRtt.store(rtt);s->partner.store(true);}
@@ -236,7 +234,7 @@ void StreamEngine::run(Session* s) {
             }
             if(h->kind!=Kind::audio && !fromRelay)continue;
             if(h->kind==Kind::cookie && own && n==controlBytes) {
-                wire[4]=static_cast<uint8_t>(Kind::join); sendto(fd,wire.data(),controlBytes,0,reinterpret_cast<const sockaddr*>(&relayAddress),sizeof(relayAddress));
+                wire[4]=static_cast<uint8_t>(Kind::join); net::send(fd,wire.data(),controlBytes,relayAddress);
             } else if(h->kind==Kind::ready && own && n==controlBytes) {
                 if(wire[48]==2) { setError("This room already has that role. Disconnect the other instance."); s->relay.store(false); }
                 else if(wire[48]==3) { setError("Server capacity reached. Try again shortly."); s->relay.store(false); }
@@ -298,7 +296,7 @@ void StreamEngine::run(Session* s) {
                 for(int i=0;i<packetFrames;++i) packet[i]={outL[i],outR[i]};
                 auto wire=encrypt({Kind::audio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,packet);
                 const auto& destination=s->direct.load() ? peerAddress : relayAddress;
-                if(sendto(fd,wire.data(),wire.size(),0,reinterpret_cast<const sockaddr*>(&destination),sizeof(destination))==static_cast<ssize_t>(wire.size())) s->packets.fetch_add(1);
+                if(net::send(fd,wire.data(),wire.size(),destination)==static_cast<int>(wire.size())) s->packets.fetch_add(1);
             }
         }
         if(s->config.role==Role::receive && playing) {
@@ -337,6 +335,6 @@ void StreamEngine::run(Session* s) {
             if(next!=UINT64_MAX) expected=next;
         }
     }
-    sendControl(Kind::leave); close(fd);
+    sendControl(Kind::leave); net::close(fd);
 }
 }

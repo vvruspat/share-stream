@@ -10,6 +10,9 @@ concurrency:
   group: share-stream-production-release
   cancel-in-progress: false
 jobs:
+  platforms:
+    needs: version
+    uses: ./.github/workflows/native-platforms.yml
   version:
     name: Validate release tag
     runs-on: ubuntu-24.04
@@ -68,6 +71,7 @@ jobs:
         with:
           name: macos
           path: |
+            dist/ShareStream-Setup-macOS.zip
             dist/ShareStream-macOS.zip
             dist/ShareStream-Receiver-macOS.zip
             dist/SHA256SUMS.txt
@@ -76,7 +80,7 @@ jobs:
           retention-days: 14
   deploy:
     name: Deploy backend through Coolify
-    needs: [version, web, native]
+    needs: [version, web, native, platforms]
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 10
@@ -104,17 +108,14 @@ jobs:
         with:
           name: macos
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: dist
       - name: Verify checksums and publish
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: |
-          (cd dist && sha256sum --check SHA256SUMS.txt)
-          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            echo 'Release already exists; refusing to replace published binaries.' >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" --verify-tag --title "Share Stream $RELEASE_TAG" \
-            --notes-file docs/release-notes.md \
-            dist/ShareStream-macOS.zip dist/ShareStream-Receiver-macOS.zip \
-            dist/SHA256SUMS.txt dist/NOTARIZATION.json
+          python3 scripts/ci/publish-release.py

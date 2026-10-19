@@ -58,7 +58,25 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     connect.onClick=[this]{ if(processor.statistics().running) processor.stop(); else {saveConfiguration();processor.start();} timerCallback(); };
     connect.setColour(juce::TextButton::buttonColourId,green);
     connect.setColour(juce::TextButton::textColourOffId,background);
-    setSize(700,580); updateMode(); startTimerHz(15); timerCallback();
+    addAndMakeVisible(update);
+    update.onClick=[this]{
+        const auto state=updater->state();
+        juce::PopupMenu menu;
+        if(state.available)menu.addItem(1,"Download and install update");
+        menu.addItem(2,"Check now",!state.busy);
+        menu.addItem(3,"Check automatically (daily)",true,state.automatic);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(update),[safe=juce::Component::SafePointer<ShareStreamEditor>(this)](int choice){
+            if(!safe)return;
+            if(choice==1) {
+                juce::AlertWindow::showAsync(juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::InfoIcon)
+                    .withTitle("Install Share Stream update")
+                    .withMessage("The installer updates the standalone and plug-ins together. Save your session first. Restart your DAW after installation. On Windows, close the DAW and standalone before the installer replaces files.")
+                    .withButton("Download and install").withButton("Later"),[safe](int result){if(safe && result==1)safe->updater->check(true);});
+            } else if(choice==2)safe->updater->check();
+            else if(choice==3)safe->updater->setAutomatic(!safe->updater->state().automatic);
+        });
+    };
+    setSize(700,624); updateMode(); startTimerHz(15); timerCallback();
 }
 ShareStreamEditor::~ShareStreamEditor() { stopTimer(); setLookAndFeel(nullptr); }
 void ShareStreamEditor::saveConfiguration() {
@@ -89,6 +107,9 @@ void ShareStreamEditor::pasteInvite() {
     notice="Clipboard must contain a Share Stream invite or room code.";noticeTicks=60;
 }
 void ShareStreamEditor::timerCallback() {
+    const auto updateState=updater->state();
+    update.setButtonText(updateState.text);update.setEnabled(!updateState.busy);
+    if(updateState.ready)updater->launch();
     lastStats=processor.statistics(); const bool running=lastStats.running;
     for(auto* field:{&server,&port,&room}) field->setReadOnly(running);
     for(auto* button:{&send,&receive,&newRoom,&paste}) button->setEnabled(!running);
@@ -129,4 +150,5 @@ void ShareStreamEditor::resized() {
     copy.setBounds(32,379,126,26);paste.setBounds(166,379,126,26);
     status.setBounds(48,424,604,25);stats.setBounds(48,451,604,18);
     bufferLabel.setBounds(32,507,148,18);buffer.setBounds(184,500,132,34);connect.setBounds(454,500,214,36);
+    update.setBounds(32,581,636,28);
 }

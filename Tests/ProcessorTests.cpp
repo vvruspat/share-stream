@@ -11,7 +11,7 @@ struct Relay {
     int port=0;
     Relay() {
         {juce::DatagramSocket socket;check(socket.bindToPort(0,"127.0.0.1"),"reserve relay port");port=socket.getBoundPort();}
-        check(process.start(juce::StringArray{"python3",SHARE_STREAM_RELAY_SOURCE,"--host","127.0.0.1","--port",juce::String(port)}),"start isolated relay");
+        check(process.start(juce::StringArray{SHARE_STREAM_PYTHON,SHARE_STREAM_RELAY_SOURCE,"--host","127.0.0.1","--port",juce::String(port)}),"start isolated relay");
         juce::Thread::sleep(250);
         check(process.isRunning(),"isolated relay stays up");
     }

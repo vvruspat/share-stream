@@ -9,11 +9,13 @@ The repository contains the native JUCE plugin/receiver, browser client, signali
 3. Tag that commit and push the tag:
 
    ```sh
-   git tag -a v0.3.1 -m 'Share Stream 0.3.1'
-   git push origin v0.3.1
+   git tag -a v0.4.0 -m 'Share Stream 0.4.0'
+   git push origin v0.4.0
    ```
 
-The **Release** workflow validates the tag against all versions and `origin/main`, runs the web/browser/relay tests, builds the Linux backend image and macOS universal binaries, signs and notarizes the native bundles, deploys the backend through Coolify, then publishes the two ZIPs with checksums and Apple's notarization report. A failed prerequisite prevents publication. It never publishes unsigned fallback archives.
+The **Release** workflow validates the tag against all versions and `origin/main`, tests web/browser/relay behavior, builds the backend and native binaries on macOS, Windows, Ubuntu and Fedora, and smoke-tests the Windows/Linux installers. macOS bundles and Setup are signed and notarized using the owner's existing Developer ID Application identity. Windows Setup is currently unsigned. Linux packages retain apt/rpm ownership and resolve native runtime dependencies.
+
+The macOS job first notarizes/staples the three bundles, then seals them in Setup's signed resources and notarizes/staples Setup separately. After all platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all six downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
 
 To retry a failed workflow, use **Re-run failed jobs**. A manual dispatch must select the existing `vX.Y.Z` tag as its ref. Published releases are immutable from the workflow: it refuses to replace their binaries.
 

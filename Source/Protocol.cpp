@@ -6,13 +6,19 @@
 #include <cstring>
 #include <cstdlib>
 #include <stdexcept>
-#if !defined(__APPLE__)
+#if defined(_WIN32)
+#include <windows.h>
+#include <bcrypt.h>
+#elif !defined(__APPLE__)
 #include <sys/random.h>
 #endif
 
 namespace sharestream {
 void randomBytes(void* p, size_t n) {
-#if defined(__APPLE__)
+#if defined(_WIN32)
+    if (BCryptGenRandom(nullptr,static_cast<PUCHAR>(p),static_cast<ULONG>(n),BCRYPT_USE_SYSTEM_PREFERRED_RNG)!=0)
+        throw std::runtime_error("OS random source unavailable");
+#elif defined(__APPLE__)
     arc4random_buf(p, n);
 #else
     auto* out = static_cast<uint8_t*>(p);

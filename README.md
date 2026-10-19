@@ -24,6 +24,17 @@ and Heroicons. Unprocessed headphone capture remains the default.
 Состояние и RTT выбранного пути показаны в интерфейсе. Это UDP hole punching,
 а не полноценный ICE/TURN: некоторые NAT и firewall требуют relay.
 
+## Install and update
+
+[Download the latest release](https://github.com/vvruspat/share-stream/releases/latest). One installer includes the standalone receiver and VST3; macOS also includes AU.
+
+- **macOS 12+ (Apple Silicon + Intel):** open `ShareStream-Setup-macOS.zip`, then `Share Stream Setup.app`. Signed with the owner's Developer ID and notarized by Apple.
+- **Windows 10/11 x64:** run `ShareStream-Setup-Windows-x64.exe` (currently unsigned).
+- **Ubuntu 24.04+ x86_64:** install `ShareStream-Ubuntu-amd64.deb`.
+- **Fedora 44+ x86_64:** install `ShareStream-Fedora-x86_64.rpm`.
+
+From 0.4.0, the plug-in and receiver check GitHub Releases daily and offer **Download and install update**. Save your session and restart the DAW/receiver afterwards. 0.3.1 needs this first installation manually. [Installation paths, update behavior and rollback](docs/updates.md).
+
 ## Быстрый старт
 
 1. Распакуйте `ShareStream-macOS.zip`, запустите `Install.command`.
