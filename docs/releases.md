@@ -17,7 +17,9 @@ The **Release** workflow validates the tag against all versions and `origin/main
 
 The macOS job first notarizes/staples the three bundles, then seals them in Setup's signed resources and notarizes/staples Setup separately. After all platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all six downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
 
-To retry a failed workflow, use **Re-run failed jobs**. A manual dispatch must select the existing `vX.Y.Z` tag as its ref. Published releases are immutable from the workflow: it refuses to replace their binaries.
+To retry compilation, signing or deployment failures, use **Re-run failed jobs**. A normal manual dispatch must select the existing `vX.Y.Z` tag as its ref. Published binaries are never overwritten; an identical published release is a successful no-op.
+
+If only publication failed, dispatch **Release** from `main` with `recovery_tag=vX.Y.Z` and `source_run_id` set to the original Release run ID. Recovery verifies that the run belongs to this repository and immutable tag, every build/test/sign/deploy gate succeeded, and production reports the exact tagged revision. It downloads those existing Actions artifacts and finishes the matching draft without rebuilding, signing again or deploying. Every existing asset must match its expected SHA-256 and size; different published or draft assets are rejected. A partial matching draft can receive missing assets. Draft metadata is queried by numeric release ID, since the REST tag endpoint excludes drafts.
 
 ## GitHub environments
 
