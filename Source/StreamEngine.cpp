@@ -1,4 +1,5 @@
 #include "StreamEngine.h"
+#include "AudioCodec.h"
 #include <monocypher.h>
 #include <algorithm>
 #include <chrono>
@@ -28,6 +29,9 @@ struct StreamEngine::Session {
     std::atomic<uint64_t> packets {0}, lost {0}, underruns {0}, overruns {0}, rejected {0};
     std::atomic<uint64_t> late {0};
     std::atomic<float> inputPeak {0}, outputPeak {0};
+    std::atomic<AudioQuality> requestedQuality {AudioQuality::float32}, activeQuality {AudioQuality::float32};
+    std::atomic<bool> qualityNegotiated {false};
+    AudioCodec codec;
     std::thread worker;
     juce::WindowedSincInterpolator receiveL, receiveR;
     bool primed = false;
@@ -45,10 +49,13 @@ bool StreamEngine::connect(const Connection& config) {
     if (!room) { setError("Room code must contain 32 hexadecimal characters."); return false; }
     if (config.host.empty() || config.port < 1 || config.port > 65535) { setError("Enter a server and valid UDP port."); return false; }
     if (hostRate < 8000 || hostRate > 192000) { setError("Use a sample rate between 8 and 192 kHz."); return false; }
+    if (!validQuality(static_cast<int>(config.quality))) {setError("Choose a supported streaming quality.");return false;}
     current = std::make_unique<Session>();
     auto& s = *current;
+    if(!s.codec.valid()) {current.reset();setError("Cannot initialize the audio codec.");return false;}
     s.config = config; s.config.jitterMs = std::clamp(config.jitterMs, 5, 100);
     s.jitterMs.store(s.config.jitterMs);
+    s.requestedQuality.store(config.quality);
     s.room = *room; s.rate = hostRate; s.block = maxBlock;
     randomBytes(s.peer.data(), s.peer.size());
     setError("");
@@ -73,6 +80,11 @@ void StreamEngine::prepare(double rate, int block) {
     hostRate = rate; maxBlock = std::max(1, block);
 }
 bool StreamEngine::isRunning() const noexcept { return active.load() != nullptr; }
+void StreamEngine::setQuality(AudioQuality quality) {
+    if(!validQuality(static_cast<int>(quality)))return;
+    std::lock_guard lock(controlMutex);
+    if(current)current->requestedQuality.store(quality);
+}
 Statistics StreamEngine::statistics() const {
     std::lock_guard lock(controlMutex);
     Statistics out;
@@ -83,6 +95,7 @@ Statistics StreamEngine::statistics() const {
         out.packets=s->packets.load(); out.lost=s->lost.load(); out.underruns=s->underruns.load(); out.overruns=s->overruns.load(); out.rejected=s->rejected.load();
         out.late=s->late.load();
         out.inputPeak=s->inputPeak.load(); out.outputPeak=s->outputPeak.load();
+        out.activeQuality=s->activeQuality.load();out.qualityNegotiated=s->qualityNegotiated.load();
     }
     { std::lock_guard errorLock(errorMutex); out.error=error; }
     return out;
@@ -181,21 +194,29 @@ void StreamEngine::run(Session* s) {
     const double ratio=s->rate/48000.0;
     uint64_t sendSequence=0,expected=0,highestReceived=0;
     double lastHello=-10000,lastPing=-10000,playAt=0,lastAudio=0,lastDirectProbe=-10000,lastDirectReply=-10000;
+    double lastCapabilitiesSent=-10000,lastCapabilitiesReceived=-10000;
+    uint64_t capabilitiesSequence=0,lastCapabilitiesSequence=0;
+    Id capabilitiesPeer {};uint8_t partnerQualities=1;
     sockaddr_in peerAddress {};Id peerHint {};bool haveEndpoint=false;
     const auto sameAddress=[](const sockaddr_in& a,const sockaddr_in& b){return a.sin_addr.s_addr==b.sin_addr.s_addr && a.sin_port==b.sin_port;};
     bool playing=false,haveStream=false;
     double adaptiveJitter=s->config.jitterMs,averageAhead=adaptiveJitter/2.5;
     Id sender {};
-    struct Pending { uint64_t sequence=UINT64_MAX; AudioPacket audio {}; };
+    struct Pending { uint64_t sequence=UINT64_MAX; AudioPacket audio {};std::optional<EncodedFrame> encoded; };
     std::array<Pending,256> jitter;
     Stereo lastSample {};
     bool concealed=false;
+    AudioQuality lastDecodedQuality=AudioQuality::float32;
     while(!s->stop.load()) {
         const double now=milliseconds();
         if(now-lastHello>=1000) { sendControl(Kind::hello); lastHello=now; }
         if(s->relay.load() && now-lastPing>=500) { sendControl(Kind::ping,static_cast<uint64_t>(now*1000)); lastPing=now; }
         if(now-s->lastRelay.load()>3000) { s->relay.store(false); if(!s->direct.load())s->partner.store(false); }
         s->direct.store(s->config.preferDirect && haveEndpoint && now-lastDirectReply<1500);
+        if(s->relay.load() && s->partner.load() && haveEndpoint && now-lastCapabilitiesSent>=500) {
+            const auto caps=encryptCapabilities({Kind::capabilities,s->config.role,s->room.id,s->peer,++capabilitiesSequence},s->room.key);
+            net::send(fd,caps.data(),caps.size(),relayAddress);lastCapabilitiesSent=now;
+        }
         if(s->config.preferDirect && haveEndpoint && now-lastDirectProbe>=250) {
             auto probe=encryptProbe({Kind::directPing,s->config.role,s->room.id,s->peer,static_cast<uint64_t>(now*1000)},s->room.key);
             net::send(fd,probe.data(),probe.size(),peerAddress);lastDirectProbe=now;
@@ -211,7 +232,7 @@ void StreamEngine::run(Session* s) {
             if(!h || h->room!=s->room.id) continue;
             const bool fromRelay=sameAddress(source,relayAddress);
             const bool own=h->peer==s->peer && h->role==s->config.role;
-            if(h->kind==Kind::endpoint && fromRelay && own && n==80 && s->config.preferDirect) {
+            if(h->kind==Kind::endpoint && fromRelay && own && n==80) {
                 Id candidate {};std::copy_n(wire.data()+54,16,candidate.begin());
                 sockaddr_in endpoint {};endpoint.sin_family=AF_INET;
                 std::memcpy(&endpoint.sin_addr.s_addr,wire.data()+48,4);std::memcpy(&endpoint.sin_port,wire.data()+52,2);
@@ -232,25 +253,36 @@ void StreamEngine::run(Session* s) {
                 }
                 continue;
             }
-            if(h->kind!=Kind::audio && !fromRelay)continue;
+            if(h->kind!=Kind::audio && h->kind!=Kind::encodedAudio && !fromRelay)continue;
+            if(h->kind==Kind::capabilities && fromRelay && haveEndpoint && h->peer==peerHint && h->role!=s->config.role) {
+                const auto formats=decryptCapabilities(wire.data(),static_cast<size_t>(n),s->room.key);
+                if(formats && (capabilitiesPeer!=h->peer || h->sequence>lastCapabilitiesSequence)) {
+                    partnerQualities=*formats;capabilitiesPeer=h->peer;lastCapabilitiesSequence=h->sequence;lastCapabilitiesReceived=milliseconds();
+                }
+                continue;
+            }
             if(h->kind==Kind::cookie && own && n==controlBytes) {
                 wire[4]=static_cast<uint8_t>(Kind::join); net::send(fd,wire.data(),controlBytes,relayAddress);
             } else if(h->kind==Kind::ready && own && n==controlBytes) {
-                if(wire[48]==2) { setError("This room already has that role. Disconnect the other instance."); s->relay.store(false); }
+                if(wire[48]==2) { setError("Role already in use. Your partner must select the opposite role."); s->relay.store(false); }
                 else if(wire[48]==3) { setError("Server capacity reached. Try again shortly."); s->relay.store(false); }
                 else { s->relay.store(true); s->lastRelay.store(milliseconds()); s->partner.store(wire[49]>0); setError(""); }
             } else if(h->kind==Kind::pong && own && n==controlBytes) {
                 s->rtt.store(std::max(0.0,milliseconds()-h->sequence/1000.0)); s->lastRelay.store(milliseconds());
                 s->partner.store(wire[49]>0);
-            } else if(h->kind==Kind::audio && s->config.role==Role::receive && h->peer!=s->peer) {
-                AudioPacket decoded;
-                if(!decrypt(wire.data(),static_cast<size_t>(n),s->room.key,decoded)) { s->rejected.fetch_add(1); continue; }
+            } else if((h->kind==Kind::audio || h->kind==Kind::encodedAudio) && s->config.role==Role::receive && h->peer!=s->peer) {
+                AudioPacket decoded {};std::optional<EncodedFrame> encoded;
+                if(h->kind==Kind::encodedAudio) {
+                    encoded=decryptFrame(wire.data(),static_cast<size_t>(n),s->room.key);
+                    if(!encoded || !s->codec.validFrame(*encoded)) {s->rejected.fetch_add(1);continue;}
+                } else if(!decrypt(wire.data(),static_cast<size_t>(n),s->room.key,decoded)) { s->rejected.fetch_add(1); continue; }
                 const double arrived=milliseconds();
                 if(!haveStream || sender!=h->peer) {
                     haveStream=true; sender=h->peer; expected=h->sequence; highestReceived=h->sequence; playing=true;
                     playAt=arrived+adaptiveJitter;averageAhead=adaptiveJitter/2.5;
                     for(auto& slot:jitter) slot.sequence=UINT64_MAX;
                     lastSample={}; concealed=false;
+                    s->codec.resetDecoder();lastDecodedQuality=AudioQuality::float32;
                 }
                 if(h->sequence<expected) {
                     // Only a previously unseen late sequence may grow the buffer.
@@ -270,11 +302,16 @@ void StreamEngine::run(Session* s) {
                 }
                 auto& slot=jitter[h->sequence%jitter.size()];
                 if(slot.sequence==h->sequence) continue;
-                slot={h->sequence,decoded}; lastAudio=arrived;
+                slot={h->sequence,decoded,std::move(encoded)}; lastAudio=arrived;
                 s->packets.fetch_add(1);
             }
         }
         if(s->config.role==Role::send && (s->relay.load() || s->direct.load())) {
+            const auto requested=s->requestedQuality.load();
+            const bool negotiated=s->partner.load() && haveEndpoint && capabilitiesPeer==peerHint && now-lastCapabilitiesReceived<2000
+                && (partnerQualities&(1u<<static_cast<int>(requested)));
+            const auto quality=negotiated?requested:AudioQuality::float32;
+            s->qualityNegotiated.store(negotiated);s->activeQuality.store(quality);
             const int inputCount=static_cast<int>(std::ceil(packetFrames*ratio))+2;
             const size_t maxBacklog=static_cast<size_t>(s->rate*0.05);
             if(s->sendQueue.available()>maxBacklog) {
@@ -294,9 +331,16 @@ void StreamEngine::run(Session* s) {
                 s->sendQueue.discard(static_cast<size_t>(consumed));
                 AudioPacket packet;
                 for(int i=0;i<packetFrames;++i) packet[i]={outL[i],outR[i]};
-                auto wire=encrypt({Kind::audio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,packet);
+                const auto frame=s->codec.encode(quality,packet);
                 const auto& destination=s->direct.load() ? peerAddress : relayAddress;
-                if(net::send(fd,wire.data(),wire.size(),destination)==static_cast<int>(wire.size())) s->packets.fetch_add(1);
+                if(quality==AudioQuality::float32) {
+                    const auto wire=encrypt({Kind::audio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,packet);
+                    if(net::send(fd,wire.data(),wire.size(),destination)==static_cast<int>(wire.size()))s->packets.fetch_add(1);
+                } else {
+                    const auto wire=encryptFrame({Kind::encodedAudio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,frame);
+                    if(wire.empty()) {s->rejected.fetch_add(1);continue;}
+                    if(net::send(fd,wire.data(),wire.size(),destination)==static_cast<int>(wire.size()))s->packets.fetch_add(1);
+                }
             }
         }
         if(s->config.role==Role::receive && playing) {
@@ -309,11 +353,21 @@ void StreamEngine::run(Session* s) {
                 for(int batch=0;batch<32 && time>=playAt;++batch) {
                     AudioPacket packet {};
                     auto& slot=jitter[expected%jitter.size()];
-                    if(slot.sequence==expected) {
-                        packet=slot.audio; slot.sequence=UINT64_MAX;
+                    bool present=slot.sequence==expected;
+                    if(present) {
+                        const auto quality=slot.encoded?slot.encoded->quality:AudioQuality::float32;
+                        if(quality!=lastDecodedQuality && quality==AudioQuality::opus320)s->codec.resetDecoder();
+                        if(slot.encoded) {
+                            if(!s->codec.decode(*slot.encoded,packet)) {present=false;s->rejected.fetch_add(1);}
+                        } else packet=slot.audio;
+                        lastDecodedQuality=quality;s->activeQuality.store(quality);
+                        slot.sequence=UINT64_MAX;
+                    }
+                    if(present) {
                         if(concealed) for(int i=0;i<packetFrames;++i) { const float f=float(i+1)/packetFrames; packet[i].left*=f; packet[i].right*=f; }
                         lastSample=packet.back(); concealed=false;
                     } else {
+                        if(lastDecodedQuality==AudioQuality::opus320)s->codec.conceal();
                         // Fade a missing frame to zero instead of looping stale audio.
                         for(int i=0;i<packetFrames;++i) { const float f=1.0f-float(i+1)/packetFrames; packet[i]={lastSample.left*f,lastSample.right*f}; }
                         lastSample={}; concealed=true; s->lost.fetch_add(1);

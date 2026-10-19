@@ -25,8 +25,10 @@ private:
     juce::TextButton update {"Check for updates"};
     juce::SharedResourcePointer<sharestream::Updater> updater;
     juce::TextEditor server, port, room;
-    juce::ComboBox buffer;
-    juce::Label serverLabel, portLabel, roomLabel, bufferLabel, status, hint, stats;
+    juce::ComboBox buffer, quality;
+    juce::Slider sendMonitor, listenMonitor;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sendMonitorAttachment, listenMonitorAttachment;
+    juce::Label serverLabel, portLabel, roomLabel, bufferLabel, qualityLabel, status, hint, stats, presence, sendMonitorLabel, listenMonitorLabel;
     sharestream::Statistics lastStats;
     juce::String notice;
     int noticeTicks=0;

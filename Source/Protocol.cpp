@@ -63,7 +63,7 @@ void writeHeader(uint8_t* out, const Header& h) {
     for (int i = 0; i < 8; ++i) out[40+i] = static_cast<uint8_t>(h.sequence >> (56-8*i));
 }
 std::optional<Header> readHeader(const uint8_t* data, size_t size) {
-    if (size < headerBytes || std::memcmp(data, "SST1", 4) || data[6] || data[7] || data[4] < 1 || data[4] > 11 || data[5] < 1 || data[5] > 2) return {};
+    if (size < headerBytes || std::memcmp(data, "SST1", 4) || data[6] || data[7] || data[4] < 1 || data[4] > 13 || data[5] < 1 || data[5] > 2) return {};
     Header h {static_cast<Kind>(data[4]), static_cast<Role>(data[5]), {}, {}, 0};
     std::copy_n(data+8, 16, h.room.begin()); std::copy_n(data+24, 16, h.peer.begin());
     for (int i = 0; i < 8; ++i) h.sequence = (h.sequence << 8) | data[40+i];
@@ -111,5 +111,45 @@ bool authenticateProbe(const uint8_t* wire,size_t size,const Key& key) {
     if(size!=104 || !h || (h->kind!=Kind::directPing && h->kind!=Kind::directPong))return false;
     std::array<uint8_t,16> plain {};
     return crypto_aead_unlock(plain.data(),wire+72,key.data(),wire+48,wire,48,wire+88,plain.size())==0;
+}
+const char* qualityName(AudioQuality quality) {
+    switch(quality) {
+        case AudioQuality::pcm24:return "PCM 24-bit";
+        case AudioQuality::opus320:return "Opus 320 kbps";
+        default:return "Float32";
+    }
+}
+std::vector<uint8_t> encryptFrame(const Header& header,const Key& key,const EncodedFrame& frame) {
+    if(header.kind!=Kind::encodedAudio || header.role!=Role::send || frame.quality==AudioQuality::float32
+       || !validQuality(static_cast<int>(frame.quality)) || frame.bytes.empty() || frame.bytes.size()>1108) return {};
+    std::vector<uint8_t> plain(4+frame.bytes.size()),wire(88+plain.size());
+    plain[0]=1;plain[1]=static_cast<uint8_t>(frame.quality);
+    std::copy(frame.bytes.begin(),frame.bytes.end(),plain.begin()+4);
+    writeHeader(wire.data(),header);randomBytes(wire.data()+48,24);
+    crypto_aead_lock(wire.data()+88,wire.data()+72,key.data(),wire.data()+48,wire.data(),48,plain.data(),plain.size());
+    return wire;
+}
+std::optional<EncodedFrame> decryptFrame(const uint8_t* wire,size_t size,const Key& key) {
+    const auto h=readHeader(wire,size);
+    if(size<93 || size>1200 || !h || h->kind!=Kind::encodedAudio || h->role!=Role::send)return {};
+    std::vector<uint8_t> plain(size-88);
+    if(crypto_aead_unlock(plain.data(),wire+72,key.data(),wire+48,wire,48,wire+88,plain.size())!=0
+       || plain[0]!=1 || plain[2] || plain[3] || plain[1]<1 || plain[1]>2)return {};
+    if(plain[1]==1 && plain.size()!=724)return {};
+    return EncodedFrame{static_cast<AudioQuality>(plain[1]),{plain.begin()+4,plain.end()}};
+}
+Probe encryptCapabilities(const Header& header,const Key& key,uint8_t formats) {
+    Probe wire {};writeHeader(wire.data(),header);randomBytes(wire.data()+48,24);
+    std::array<uint8_t,16> plain {};plain[0]=1;plain[1]=formats;
+    crypto_aead_lock(wire.data()+88,wire.data()+72,key.data(),wire.data()+48,wire.data(),48,plain.data(),plain.size());
+    return wire;
+}
+std::optional<uint8_t> decryptCapabilities(const uint8_t* wire,size_t size,const Key& key) {
+    const auto h=readHeader(wire,size);
+    if(size!=104 || !h || h->kind!=Kind::capabilities)return {};
+    std::array<uint8_t,16> plain {};
+    if(crypto_aead_unlock(plain.data(),wire+72,key.data(),wire+48,wire,48,wire+88,plain.size())!=0 || plain[0]!=1 || !(plain[1]&1))return {};
+    if(std::any_of(plain.begin()+2,plain.end(),[](auto value){return value!=0;}))return {};
+    return plain[1];
 }
 }

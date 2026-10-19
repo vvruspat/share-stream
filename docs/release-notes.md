@@ -1,4 +1,13 @@
-Music, voice and screen in one private session, now on macOS, Windows and Linux.
+More control over a shared mixing session, on macOS, Windows and Linux.
+
+- A separate partner indicator shows when the listener/sender is connected.
+- Independent, automatable **Send / local monitor** and **Listen / local monitor** volumes, with a 20 ms smoothing ramp, mute and double-click reset to 0 dB. Send monitoring never changes the partner's level. Both values are saved in the DAW project.
+- Switch music quality while connected: original **Float32**, uncompressed **PCM 24-bit**, or **Opus 320 kbps** CBR. All modes retain stereo, 48 kHz and 2.5 ms packets. The receiver follows automatically. Opus is a lossy low-delay codec; PCM24/Opus limit samples to 0 dBFS.
+- New formats use authenticated capability negotiation and fall back to Float32 with an older client or relay. The receiver reorders Opus packets before stateful decoding. Install the new clients and deploy the relay to enable PCM24/Opus.
+- **Copy invite** also connects the current room; **Paste invite** loads and connects in one action. Plug-in Send/Listen roles can be changed without a manual Disconnect/Connect; choose complementary roles on the two plug-ins. Standalone remains output-only.
+- Existing room codes and the unified music/voice/screen invitation remain compatible. Restoring a DAW project never starts broadcasting automatically.
+
+Combined installers and the built-in updater remain available:
 
 - Built-in daily GitHub Releases checks in the plug-in and standalone. Use the update button to download, verify and launch the installer. Automatic checks can be disabled.
 - One macOS installer installs the standalone receiver, VST3 and Audio Unit for this user. Signed with Aleksandr Kolesov’s Developer ID and notarized by Apple. It stages all components, keeps previous versions and rolls back a failed replacement.

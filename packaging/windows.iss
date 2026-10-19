@@ -29,6 +29,7 @@ Source: "..\build\ShareStream_artefacts\Release\VST3\Share Stream.vst3\*"; DestD
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\vendor\monocypher\LICENCE.md"; DestDir: "{app}"; DestName: "Monocypher-LICENCE.md"; Flags: ignoreversion
+Source: "..\vendor\Opus-COPYING"; DestDir: "{app}"; Flags: ignoreversion
 [Icons]
 Name: "{group}\Share Stream"; Filename: "{app}\Share Stream.exe"
 Name: "{group}\Uninstall Share Stream"; Filename: "{uninstallexe}"

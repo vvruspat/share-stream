@@ -7,6 +7,10 @@
 - Monocypher 4.0.2, https://github.com/LoupVaillant/Monocypher/tree/4.0.2.
   `vendor/monocypher/monocypher.c` and `.h` are unmodified upstream source.
   Dual licensed BSD-2-Clause / CC0; the complete licence is included alongside them.
+- libopus 1.6.1, https://github.com/xiph/opus/tree/v1.6.1, pinned to commit
+  `22244de5a79bd1d6d623c32e72bf1954b56235be`. BSD-3-Clause; upstream's complete
+  copyright/licence and patent-notice text is in `vendor/Opus-COPYING` and included
+  in native bundles/installations. Built statically from source; DRED/OSCE are off.
 - VST is a trademark of Steinberg Media Technologies GmbH. The JUCE distribution
   includes the VST3 SDK and its licence notices.
 - Browser signaling service: ws 8.22.0 (MIT), https://github.com/websockets/ws.
@@ -24,7 +28,7 @@
 
 The source is included in this workspace. macOS distribution archives require a Developer
 ID Application signature; packaging refuses ad-hoc signing. Apple notarization is
-a separate release step. No third-party binary codec or Homebrew library is required at runtime.
+a separate release step. No separately installed codec or Homebrew library is required at runtime.
 
 Windows Setup is built with Inno Setup 6 (https://jrsoftware.org/isinfo.php;
 upstream licence: https://jrsoftware.org/files/is/license.txt). Linux packages
