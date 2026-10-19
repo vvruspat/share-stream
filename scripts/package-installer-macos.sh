@@ -30,6 +30,7 @@ xcrun stapler staple "$installer"
 xcrun stapler validate "$installer"
 spctl --assess --type execute --verbose=2 "$installer"
 ditto -c -k --sequesterRsrc --keepParent "$installer" "$artifact_root/ShareStream-Setup-macOS.zip"
+"$installer/Contents/MacOS/Share Stream Setup" --verify-payload
 python3 - <<'PY'
 import json, os
 from pathlib import Path

@@ -21,3 +21,4 @@ ditto 'build/ShareStreamReceiver_artefacts/Release/Share Stream.app' 'build/inst
 ditto -c -k build/installer-ci-payload build/installer-ci-payload.zip
 cmake -S . -B build -DSHARE_STREAM_INSTALLER_PAYLOAD="$PWD/build/installer-ci-payload.zip"
 cmake --build build --target ShareStreamInstaller --parallel "${BUILD_JOBS:-3}"
+lipo -archs 'build/ShareStreamInstaller_artefacts/Release/Share Stream Setup.app/Contents/MacOS/Share Stream Setup' | python3 -c 'import sys; assert {"arm64", "x86_64"}.issubset(sys.stdin.read().split()), "Expected universal Setup"'

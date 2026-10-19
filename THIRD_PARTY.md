@@ -22,6 +22,11 @@
 - Browser QA: Playwright 1.64.1, Apache-2.0, https://github.com/microsoft/playwright.
   These server/test dependencies are not bundled into the native macOS binaries.
 
-The source is included in this workspace. Distribution archives require a Developer
+The source is included in this workspace. macOS distribution archives require a Developer
 ID Application signature; packaging refuses ad-hoc signing. Apple notarization is
 a separate release step. No third-party binary codec or Homebrew library is required at runtime.
+
+Windows Setup is built with Inno Setup 6 (https://jrsoftware.org/isinfo.php;
+upstream licence: https://jrsoftware.org/files/is/license.txt). Linux packages
+use system libraries, including libcurl for HTTPS; dependencies are installed by
+the distro package manager rather than bundled into the application.

@@ -34,3 +34,25 @@ Name: "{group}\Share Stream"; Filename: "{app}\Share Stream.exe"
 Name: "{group}\Uninstall Share Stream"; Filename: "{uninstallexe}"
 [Run]
 Filename: "{app}\Share Stream.exe"; Description: "Open Share Stream"; Flags: nowait postinstall skipifsilent
+[Code]
+function FileUnavailable(const FileName: String): Boolean;
+var
+  Stream: TFileStream;
+begin
+  Result := False;
+  if not FileExists(FileName) then Exit;
+  try
+    Stream := TFileStream.Create(FileName, fmOpenReadWrite or fmShareExclusive);
+    Stream.Free;
+  except
+    Result := True;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if FileUnavailable(ExpandConstant('{app}\Share Stream.exe')) or
+     FileUnavailable(ExpandConstant('{usercf}\VST3\Share Stream.vst3\Contents\x86_64-win\Share Stream.vst3')) then
+    Result := 'Save your session and close Share Stream and your DAW, then run Setup again. No files have been changed. If they are already closed, check write access to the installation folders.';
+end;

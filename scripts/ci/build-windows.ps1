@@ -16,6 +16,20 @@ if ($setup.ExitCode -ne 0) { throw "Setup failed: $($setup.ExitCode)" }
 $receiver = "$env:LOCALAPPDATA\Programs\Share Stream\Share Stream.exe"
 $vst = "$env:LOCALAPPDATA\Programs\Common\VST3\Share Stream.vst3"
 if (!(Test-Path $receiver) -or !(Test-Path $vst)) { throw 'Installer did not install both components' }
+# A locked VST3 must reject the whole update before replacing the receiver.
+[IO.File]::AppendAllText($receiver, 'CI-old-version-marker')
+$oldHash = (Get-FileHash $receiver).Hash
+$module = Get-ChildItem $vst -Recurse -File -Filter '*.vst3' | Select-Object -First 1
+if (!$module) { throw 'Installed VST3 module missing' }
+$locked = [IO.File]::Open($module.FullName, 'Open', 'Read', 'None')
+try {
+  $blocked = Start-Process dist/ShareStream-Setup-Windows-x64.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+  if ($blocked.ExitCode -eq 0) { throw 'Setup ignored an in-use VST3' }
+  if ((Get-FileHash $receiver).Hash -ne $oldHash) { throw 'Setup partially updated a locked installation' }
+} finally { $locked.Dispose() }
+$update = Start-Process dist/ShareStream-Setup-Windows-x64.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
+if ($update.ExitCode -ne 0) { throw "Update failed: $($update.ExitCode)" }
+if ((Get-FileHash $receiver).Hash -ne (Get-FileHash 'build/ShareStreamReceiver_artefacts/Release/Share Stream.exe').Hash) { throw 'Update did not restore the current receiver' }
 $uninstall = Start-Process "$env:LOCALAPPDATA\Programs\Share Stream\unins000.exe" -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait -PassThru
 if ($uninstall.ExitCode -ne 0) { throw "Uninstall failed: $($uninstall.ExitCode)" }
 if ((Test-Path $receiver) -or (Test-Path $vst)) { throw 'Uninstaller did not remove both components' }

@@ -6,15 +6,16 @@
 [![Release](https://github.com/vvruspat/share-stream/actions/workflows/release.yml/badge.svg)](https://github.com/vvruspat/share-stream/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/vvruspat/share-stream?color=b5f5cf)](https://github.com/vvruspat/share-stream/releases/latest)
 
-[**Download for macOS**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
+[**Download**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
 
 ![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/web.png)
 
-Native macOS VST3, AU and standalone receiver for private two-person audio streaming.
-Default relay: **13.140.153.191:48100 UDP**. macOS 12+, Intel and Apple Silicon.
-Version **0.3.1** fixes plugin Listen on silent/disabled input and reconnects after DAW audio restarts.
+Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
+Default relay: **13.140.153.191:48100 UDP**.
+Version **0.4.0** adds GitHub Releases updates and combined installers.
+Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
 One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
-Browser service **0.3.1** uses React, TypeScript and Vite+, with styled Radix UI controls
+The browser service uses React, TypeScript and Vite+, with styled Radix UI controls
 and Heroicons. Unprocessed headphone capture remains the default.
 
 Сервер знакомит участников: плагин и приложение пробуют прямое UDP-соединение

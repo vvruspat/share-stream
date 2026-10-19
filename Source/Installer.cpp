@@ -13,6 +13,9 @@ juce::Result signature(const juce::File& bundle) {
         return juce::Result::fail("Apple signature verification failed. Nothing installed.");
     return juce::Result::ok();
 }
+juce::File payloadArchive() {
+    return juce::File::getSpecialLocation(juce::File::currentApplicationFile).getChildFile("Contents/Resources/payload.zip");
+}
 class Setup final : public juce::Component,private juce::Thread,private juce::Timer {
 public:
     explicit Setup(bool update):Thread("Share Stream installer") {
@@ -39,8 +42,7 @@ private:
         const juce::ScopeGuard unlock([&]{lock.exit();});
         const auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("share-stream-"+juce::Uuid().toString());
         const juce::ScopeGuard cleanup([&]{temp.deleteRecursively();});
-        const auto payload=juce::File::getSpecialLocation(juce::File::currentApplicationFile).getChildFile("Contents/Resources/payload.zip");
-        result=sharestream::updates::extractArchive(payload,temp);
+        result=sharestream::updates::extractArchive(payloadArchive(),temp);
         if(result.failed())return;
         const auto backup=home.getChildFile("Library/Application Support/Share Stream/Previous installs/"+juce::Time::getCurrentTime().formatted("%Y%m%d-%H%M%S")+"-"+juce::Uuid().toString());
         result=sharestream::updates::install({
@@ -62,6 +64,13 @@ public:
     const juce::String getApplicationName() override {return "Share Stream Setup";}
     const juce::String getApplicationVersion() override {return SHARE_STREAM_VERSION;}
     void initialise(const juce::String& args) override {
+        if(args=="--verify-payload") {
+            const auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("share-stream-verify-"+juce::Uuid().toString());
+            auto result=sharestream::updates::extractArchive(payloadArchive(),temp);
+            for(auto name:{"Share Stream.vst3","Share Stream.component","Share Stream.app"})
+                if(result.wasOk())result=signature(temp.getChildFile(name));
+            temp.deleteRecursively();setApplicationReturnValue(result.wasOk()?0:1);quit();return;
+        }
         window=std::make_unique<Window>();window->setContentOwned(new Setup(args.contains("--update")),true);
         window->centreWithSize(580,360);window->setVisible(true);
     }

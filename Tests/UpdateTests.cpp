@@ -35,12 +35,13 @@ int main(int argc,char** argv) {
         result=install({{source,destination},{temp.getChildFile("missing"),temp.getChildFile("second")}},temp.getChildFile("backup3"),[](const auto&){return juce::Result::ok();});
         check(result.failed() && destination.getChildFile("data").loadFileAsString()=="new","all components staged before replacement");
         auto second=temp.getChildFile("second");second.createDirectory();second.getChildFile("data").replaceWithText("second-old");
+        destination.getChildFile("data").replaceWithText("first-before-rollback");
         int validations=0;
         result=install({{source,destination},{source,second}},temp.getChildFile("backup4"),[&](const auto& staged){
             if(++validations==2)staged.deleteRecursively(); // inject a rename failure after staging
             return juce::Result::ok();
         });
-        check(result.failed() && destination.getChildFile("data").loadFileAsString()=="new" && second.getChildFile("data").loadFileAsString()=="second-old","later replacement failure rolls every component back");
+        check(result.failed() && destination.getChildFile("data").loadFileAsString()=="first-before-rollback" && second.getChildFile("data").loadFileAsString()=="second-old","later replacement failure rolls every component back");
         for(auto name:{"../escape","/absolute","C:/drive","a/../../escape"}) {
             juce::MemoryOutputStream output;juce::ZipFile::Builder builder;
             builder.addEntry(new juce::MemoryInputStream("x",1,false),0,name,juce::Time::getCurrentTime());builder.writeToStream(output,nullptr);
