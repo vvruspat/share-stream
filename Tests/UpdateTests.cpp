@@ -2,8 +2,11 @@
 #include "InstallTransaction.h"
 #include <iostream>
 #include <stdexcept>
+#if JUCE_MAC
+#include <unistd.h>
+#endif
 static void check(bool condition,const char* message) {if(!condition)throw std::runtime_error(message);}
-int main() {
+int main(int argc,char** argv) {
     using namespace sharestream::updates;
     try {
         check(newer("1.10.0","1.9.9"),"numeric semver comparison");
@@ -44,6 +47,25 @@ int main() {
             juce::MemoryInputStream input(output.getData(),output.getDataSize(),false);juce::ZipFile zip(input);
             check(extractZip(zip,temp.getChildFile("unzip")).failed(),"archive traversal rejected");
         }
+#if JUCE_MAC
+        if(argc==2) {
+            auto payload=temp.getChildFile("payload");
+            check(extractArchive(juce::File(argv[1]),payload).wasOk(),"signed macOS payload extraction");
+            std::vector<InstallItem> items;
+            for(auto name:{"Share Stream.vst3","Share Stream.component","Share Stream.app"})
+                items.push_back({payload.getChildFile(name),temp.getChildFile("installed").getChildFile(name)});
+            result=install(items,temp.getChildFile("signed-backup"),[](const auto& file){
+                juce::ChildProcess verify;
+                bool okay=verify.start(juce::StringArray{"/usr/bin/codesign","--verify","--deep","--strict","-R","=anchor apple generic and certificate leaf[subject.OU] = \"3WKK5AGY66\"",file.getFullPathName()})
+                    && verify.waitForProcessToFinish(15000) && verify.getExitCode()==0;
+                return okay?juce::Result::ok():juce::Result::fail("invalid signature");
+            });
+            check(result.wasOk(),"all three signed bundles install in one transaction");
+            check(access(temp.getChildFile("installed/Share Stream.app/Contents/MacOS/Share Stream").getFullPathName().toRawUTF8(),X_OK)==0,"installed standalone executable permission preserved");
+        }
+#else
+        juce::ignoreUnused(argc,argv);
+#endif
         std::cout<<"PASS: release trust, semantic versions, staged installation, signature failure, backups and archive safety\n";
     }catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
 }

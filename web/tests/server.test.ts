@@ -1,5 +1,6 @@
 import { test, onTestFinished } from "vite-plus/test";
 import type { AddressInfo } from "node:net";
+import { WEB_VERSION } from "../shared/protocol.js";
 import type { ServerFrame } from "../shared/protocol.js";
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -180,6 +181,6 @@ test("HTTP serves only explicit assets with private-room security headers", asyn
   assert.equal((await fetch(base + "/server.mjs")).status, 404);
   assert.deepEqual(await (await fetch(base + "/api/health")).json(), {
     ok: true,
-    version: "0.3.1",
+    version: WEB_VERSION,
   });
 });

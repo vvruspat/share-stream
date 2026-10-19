@@ -7,7 +7,7 @@ juce::Result signature(const juce::File& bundle) {
     juce::ChildProcess process;
     // The staging filename is random, so require the expected team here; the
     // embedded payload and the installer itself are also signed and notarized.
-    const auto requirement="anchor apple generic and certificate leaf[subject.OU] = \"3WKK5AGY66\"";
+    const auto requirement="=anchor apple generic and certificate leaf[subject.OU] = \"3WKK5AGY66\"";
     if(!process.start(juce::StringArray{"/usr/bin/codesign","--verify","--deep","--strict","-R",requirement,bundle.getFullPathName()})
        || !process.waitForProcessToFinish(15000) || process.getExitCode()!=0)
         return juce::Result::fail("Apple signature verification failed. Nothing installed.");
@@ -18,7 +18,7 @@ public:
     explicit Setup(bool update):Thread("Share Stream installer") {
         setSize(580,360);
         title.setText("Share Stream",juce::dontSendNotification);title.setFont(juce::Font(juce::FontOptions(34).withStyle("Bold")));
-        details.setText("Install " SHARE_STREAM_VERSION "\n\nStandalone receiver · VST3 · Audio Unit\nFor this user. No administrator password needed.\n\nSave your session. Restart the DAW and standalone after installation.",juce::dontSendNotification);
+        details.setText("Install " SHARE_STREAM_VERSION "\n\nStandalone receiver / VST3 / Audio Unit\nFor this user. No administrator password needed.\n\nSave your session. Restart the DAW and standalone after installation.",juce::dontSendNotification);
         details.setColour(juce::Label::textColourId,juce::Colour(0xff91a49a));
         button.setButtonText("Install Share Stream");button.setColour(juce::TextButton::buttonColourId,juce::Colour(0xffb2f5ca));
         button.setColour(juce::TextButton::textColourOffId,juce::Colour(0xff101615));

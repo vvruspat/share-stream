@@ -20,7 +20,7 @@ Updater::~Updater() { signalThreadShouldExit(); waitForThreadToExit(-1); }
 Updater::State Updater::state() {
     const juce::ScopedLock lock(mutex);
     if(packageManager && !packageManager->isRunning()) {
-        current.text=packageManager->getExitCode()==0?"Updated · restart Share Stream and your DAW":"Installation cancelled or failed. Click to retry.";
+        current.text=packageManager->getExitCode()==0?"Updated / restart Share Stream and your DAW":"Installation cancelled or failed. Click to retry.";
         current.busy=false;packageManager.reset();
     }
     if(current.automatic && !current.busy && juce::Time::currentTimeMillis()>=nextCheck)check();
@@ -61,7 +61,7 @@ void Updater::run() {
             if(updates::newer(candidate,SHARE_STREAM_VERSION) && !latest)throw juce::String("Release installer is not ready for this platform.");
             {
                 const juce::ScopedLock lock(mutex);release=latest;current.available=latest.has_value();
-                current.text=latest?"Install update "+latest->version:"Up to date · " SHARE_STREAM_VERSION;
+                current.text=latest?"Install update "+latest->version:"Up to date / " SHARE_STREAM_VERSION;
                 juce::DynamicObject::Ptr obj=new juce::DynamicObject();
                 obj->setProperty("automatic",current.automatic);obj->setProperty("checked",juce::Time::currentTimeMillis());
                 settingsFile().getParentDirectory().createDirectory();settingsFile().replaceWithText(juce::JSON::toString(juce::var(obj.get())));
@@ -82,7 +82,7 @@ void Updater::run() {
                     auto n=stream->read(bytes.data(),static_cast<int>(std::min<juce::int64>(bytes.size(),r.size-received)));
                     if(n<=0)break;
                     if(!output.write(bytes.data(),static_cast<size_t>(n)))throw juce::String("Not enough disk space for update.");
-                    received+=n;setText("Downloading update · "+juce::String(100*received/r.size)+"%");
+                    received+=n;setText("Downloading update / "+juce::String(100*received/r.size)+"%");
                 }
                 output.flush();
                 if(threadShouldExit() || received!=r.size || output.getStatus().failed())throw juce::String("Download interrupted. Click to retry.");
@@ -95,7 +95,7 @@ void Updater::run() {
             if(result.failed())throw result.getErrorMessage();
             installer=extracted.getChildFile("Share Stream Setup.app");
             juce::ChildProcess verify;
-            const auto requirement="anchor apple generic and certificate leaf[subject.OU] = \"3WKK5AGY66\" and identifier \"audio.sharestream.installer\"";
+            const auto requirement="=anchor apple generic and certificate leaf[subject.OU] = \"3WKK5AGY66\" and identifier \"audio.sharestream.installer\"";
             if(!verify.start(juce::StringArray{"/usr/bin/codesign","--verify","--deep","--strict","-R",requirement,installer.getFullPathName()})
                || !verify.waitForProcessToFinish(15000) || verify.getExitCode()!=0)throw juce::String("Installer Apple signature is invalid. Nothing installed.");
 #else
@@ -124,7 +124,7 @@ bool Updater::launch() {
     const bool started=packageManager->start(juce::StringArray{"/usr/bin/pkexec",rpm?"/usr/bin/dnf":"/usr/bin/apt-get","install","-y",installer.getFullPathName()},0);
     current.busy=started;
 #endif
-    current.text=started?"Installer opened · restart Share Stream and your DAW":"Could not open installer. Click to retry.";
+    current.text=started?"Installer opened / restart Share Stream and your DAW":"Could not open installer. Click to retry.";
     return started;
 }
 }

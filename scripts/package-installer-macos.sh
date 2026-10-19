@@ -11,7 +11,7 @@ mkdir -p "$payload_dir"
 for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app'; do
   if [ -e "$payload_dir/$bundle" ]; then rm -rf "$payload_dir/$bundle"; fi
   ditto "$artifact_root/ShareStream-macOS/$bundle" "$payload_dir/$bundle"
-  codesign --verify --deep --strict -R 'anchor apple generic and certificate leaf[subject.OU] = "3WKK5AGY66"' "$payload_dir/$bundle"
+  codesign --verify --deep --strict -R '=anchor apple generic and certificate leaf[subject.OU] = "3WKK5AGY66"' "$payload_dir/$bundle"
   xcrun stapler validate "$payload_dir/$bundle"
 done
 ditto -c -k --sequesterRsrc "$payload_dir" build/payload.zip
