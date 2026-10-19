@@ -10,6 +10,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  platforms:
+    uses: ./.github/workflows/native-platforms.yml
   web:
     name: Web and relay
     runs-on: ubuntu-24.04

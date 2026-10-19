@@ -6,15 +6,16 @@
 [![Release](https://github.com/vvruspat/share-stream/actions/workflows/release.yml/badge.svg)](https://github.com/vvruspat/share-stream/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/vvruspat/share-stream?color=b5f5cf)](https://github.com/vvruspat/share-stream/releases/latest)
 
-[**Download for macOS**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
+[**Download**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
 
 ![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/web.png)
 
-Native macOS VST3, AU and standalone receiver for private two-person audio streaming.
-Default relay: **13.140.153.191:48100 UDP**. macOS 12+, Intel and Apple Silicon.
-Version **0.3.1** fixes plugin Listen on silent/disabled input and reconnects after DAW audio restarts.
+Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
+Default relay: **13.140.153.191:48100 UDP**.
+Version **0.4.0** adds GitHub Releases updates and combined installers.
+Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
 One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
-Browser service **0.3.1** uses React, TypeScript and Vite+, with styled Radix UI controls
+The browser service uses React, TypeScript and Vite+, with styled Radix UI controls
 and Heroicons. Unprocessed headphone capture remains the default.
 
 Сервер знакомит участников: плагин и приложение пробуют прямое UDP-соединение
@@ -23,6 +24,17 @@ and Heroicons. Unprocessed headphone capture remains the default.
 **Relay**. При потере P2P автоматический переход на relay происходит примерно за 1,5 с.
 Состояние и RTT выбранного пути показаны в интерфейсе. Это UDP hole punching,
 а не полноценный ICE/TURN: некоторые NAT и firewall требуют relay.
+
+## Install and update
+
+[Download the latest release](https://github.com/vvruspat/share-stream/releases/latest). One installer includes the standalone receiver and VST3; macOS also includes AU.
+
+- **macOS 12+ (Apple Silicon + Intel):** open `ShareStream-Setup-macOS.zip`, then `Share Stream Setup.app`. Signed with the owner's Developer ID and notarized by Apple.
+- **Windows 10/11 x64:** run `ShareStream-Setup-Windows-x64.exe` (currently unsigned).
+- **Ubuntu 24.04+ x86_64:** install `ShareStream-Ubuntu-amd64.deb`.
+- **Fedora 44+ x86_64:** install `ShareStream-Fedora-x86_64.rpm`.
+
+From 0.4.0, the plug-in and receiver check GitHub Releases daily and offer **Download and install update**. Save your session and restart the DAW/receiver afterwards. 0.3.1 needs this first installation manually. [Installation paths, update behavior and rollback](docs/updates.md).
 
 ## Быстрый старт
 

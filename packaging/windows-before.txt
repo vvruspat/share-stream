@@ -1,0 +1,9 @@
+Share Stream installs the standalone receiver and VST3 plug-in for this Windows user.
+
+Save your work and close the DAW and Share Stream before installing an update.
+The installer never closes your music applications automatically.
+
+The VST3 location is %LOCALAPPDATA%\Programs\Common\VST3.
+If your DAW does not scan per-user VST3 folders automatically, add this location in its plug-in settings.
+
+Your room and audio device settings are preserved during updates.

@@ -11,13 +11,30 @@ struct Relay {
     int port=0;
     Relay() {
         {juce::DatagramSocket socket;check(socket.bindToPort(0,"127.0.0.1"),"reserve relay port");port=socket.getBoundPort();}
-        check(process.start(juce::StringArray{"python3",SHARE_STREAM_RELAY_SOURCE,"--host","127.0.0.1","--port",juce::String(port)}),"start isolated relay");
-        juce::Thread::sleep(250);
-        check(process.isRunning(),"isolated relay stays up");
+        check(process.start(juce::StringArray{SHARE_STREAM_PYTHON,SHARE_STREAM_RELAY_SOURCE,"--host","127.0.0.1","--port",juce::String(port)}),"start isolated relay");
+        const auto room=parseRoom(newRoomCode());Id peer {};randomBytes(peer.data(),peer.size());
+        auto hello=control({Kind::hello,Role::send,room->id,peer,0});
+        bool ready=false;
+        for(int attempt=0;attempt<80 && process.isRunning();++attempt) {
+            juce::DatagramSocket probe;check(probe.bindToPort(0,"127.0.0.1"),"relay readiness probe socket");
+            probe.write("127.0.0.1",port,hello.data(),static_cast<int>(hello.size()));
+            if(probe.waitUntilReady(true,100)>0) {
+                Control reply {};juce::String address;int sourcePort=0;
+                const auto n=probe.read(reply.data(),static_cast<int>(reply.size()),false,address,sourcePort);
+                auto header=n>0?readHeader(reply.data(),static_cast<size_t>(n)):std::nullopt;
+                if(header && header->kind==Kind::cookie && header->peer==peer) {ready=true;break;}
+            }
+            juce::Thread::sleep(50); // ICMP errors can make readiness return immediately on Windows.
+        }
+        if(!ready) {process.kill();process.waitForProcessToFinish(2000);std::cerr<<process.readAllProcessOutput();}
+        check(ready,"isolated relay answers a real UDP cookie probe before audio tests start");
     }
     ~Relay() {process.kill();}
 };
 static void receive(StreamEngine& sender,ShareStreamProcessor& receiver,double rate,int block) {
+    for(int i=0;i<800 && (!sender.statistics().relay || !receiver.statistics().relay);++i)juce::Thread::sleep(10);
+    if(!sender.statistics().relay || !receiver.statistics().relay)std::cerr<<"Handshake diagnostics: "<<sender.statistics().error<<" / "<<receiver.statistics().error<<'\n';
+    check(sender.statistics().relay && receiver.statistics().relay,"both audio peers finish relay handshake");
     juce::AudioBuffer<float> tx(2,128),rx(2,block);juce::MidiBuffer midi;
     const auto start=std::chrono::steady_clock::now();
     int audible=0;
@@ -27,6 +44,12 @@ static void receive(StreamEngine& sender,ShareStreamProcessor& receiver,double r
         sender.process(tx.getArrayOfWritePointers(),2,128);
         rx.clear();receiver.processBlock(rx,midi);
         if(iteration>375 && rx.getMagnitude(0,0,block)>0.05f && rx.getSample(1,block-1)<-0.1f)++audible;
+    }
+    if(audible<=250) {
+        const auto txStats=sender.statistics(),rxStats=receiver.statistics();
+        std::cerr<<"Audio diagnostics: audible="<<audible<<" sent="<<txStats.packets<<" received="<<rxStats.packets
+                 <<" lost="<<rxStats.lost<<" underruns="<<rxStats.underruns<<" jitter="<<rxStats.jitterMs
+                 <<" relay="<<rxStats.relay<<" direct="<<rxStats.direct<<" txError="<<txStats.error<<" rxError="<<rxStats.error<<'\n';
     }
     check(audible>250,"Listen must render received stereo audio with a silent/disabled host input");
     check(receiver.statistics().packets>100,"plugin receives authenticated packets");

@@ -53,3 +53,4 @@ export SIGNING_IDENTITY=A0797824C682FB19E5DDED9D42BF267DEF20491D
 export NOTARY_KEYCHAIN="$keychain"
 bash scripts/package-macos.sh
 bash scripts/notarize-macos.sh share-stream-ci
+bash scripts/package-installer-macos.sh share-stream-ci

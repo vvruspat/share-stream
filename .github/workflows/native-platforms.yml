@@ -1,0 +1,82 @@
+name: Windows and Linux native packages
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  windows:
+    name: Windows x64 · VST3 + standalone + Setup
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./scripts/ci/build-windows.ps1
+        shell: pwsh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-windows
+          path: dist/ShareStream-Setup-Windows-x64.exe
+          if-no-files-found: error
+          retention-days: 14
+  linux:
+    name: ${{ matrix.name }} · VST3 + standalone
+    runs-on: ubuntu-24.04
+    container: ${{ matrix.image }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            image: ubuntu:24.04
+            package: deb
+            artifact: ubuntu
+          - name: Fedora 44
+            image: fedora:44
+            package: rpm
+            artifact: fedora
+    steps:
+      - name: Install build and test dependencies
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          if [ "$PACKAGE" = deb ]; then
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y git ca-certificates cmake ninja-build g++ python3 \
+              libasound2-dev libjack-jackd2-dev libcurl4-openssl-dev libfreetype-dev libfontconfig1-dev \
+              libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+              libglu1-mesa-dev mesa-common-dev xvfb xauth pkexec
+          else
+            dnf install -y git ca-certificates cmake ninja-build gcc-c++ python3 alsa-lib-devel jack-audio-connection-kit-devel \
+              libcurl-devel freetype-devel fontconfig-devel libX11-devel libXcomposite-devel libXcursor-devel \
+              libXext-devel libXinerama-devel libXrandr-devel libXrender-devel mesa-libGL-devel mesa-libGLU-devel \
+              xorg-x11-server-Xvfb xorg-x11-xauth rpm-build polkit
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Compile and test native streaming, plugin and updater
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: bash scripts/ci/build-linux.sh "$PACKAGE"
+      - name: Install package and probe installed VST3
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          if [ "$PACKAGE" = deb ]; then
+            apt-get install -y ./dist/ShareStream-Ubuntu-amd64.deb
+          else
+            dnf install -y ./dist/ShareStream-Fedora-x86_64.rpm
+          fi
+          test -x '/opt/share-stream/Share Stream'
+          bash scripts/ci/with-display.sh build/plugin_probe_artefacts/Release/plugin_probe '/usr/lib/vst3/Share Stream.vst3'
+          if [ "$PACKAGE" = deb ]; then apt-get remove -y share-stream; else dnf remove -y share-stream; fi
+          test ! -f '/opt/share-stream/Share Stream'
+          test ! -d '/usr/lib/vst3/Share Stream.vst3'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.artifact }}
+          path: dist/ShareStream-*
+          if-no-files-found: error
+          retention-days: 14

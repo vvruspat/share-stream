@@ -1,5 +1,6 @@
 #pragma once
 #include "PluginProcessor.h"
+#include "Updater.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
 class ShareStreamEditor final : public juce::AudioProcessorEditor, private juce::Timer {
@@ -21,6 +22,8 @@ private:
     juce::TextButton newRoom {"New room"}, copy {"Copy invite"}, paste {"Paste invite"};
     juce::TextButton audioSettings {"Audio output..."};
     juce::TextButton collaboration {"Voice & screen..."};
+    juce::TextButton update {"Check for updates"};
+    juce::SharedResourcePointer<sharestream::Updater> updater;
     juce::TextEditor server, port, room;
     juce::ComboBox buffer;
     juce::Label serverLabel, portLabel, roomLabel, bufferLabel, status, hint, stats;
