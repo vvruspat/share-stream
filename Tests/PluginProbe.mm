@@ -19,10 +19,10 @@ static bool verify(juce::AudioPluginInstance& plugin,int blockSize,double rate,b
 #import <Cocoa/Cocoa.h>
 // Exercise the embedded plug-in's public accessibility action. The host editor
 // wraps a native NSView, so its JUCE child tree does not contain plug-in controls.
-static id findConnect(id root,int depth=0) {
+static id findButton(id root,NSString* title,int depth=0) {
     if(!root || depth>30)return nil;
-    if([root respondsToSelector:@selector(accessibilityTitle)] && [[root accessibilityTitle] isEqualToString:@"Connect"] && [root respondsToSelector:@selector(accessibilityPerformPress)])return root;
-    if([root respondsToSelector:@selector(accessibilityChildren)])for(id child in [root accessibilityChildren])if(id found=findConnect(child,depth+1))return found;
+    if([root respondsToSelector:@selector(accessibilityTitle)] && [[root accessibilityTitle] isEqualToString:title] && [root respondsToSelector:@selector(accessibilityPerformPress)])return root;
+    if([root respondsToSelector:@selector(accessibilityChildren)])for(id child in [root accessibilityChildren])if(id found=findButton(child,title,depth+1))return found;
     return nil;
 }
 class ProbeWindow final:public juce::DocumentWindow {
@@ -80,9 +80,15 @@ static bool network(juce::AudioPluginInstance& plugin,int port) {
     std::unique_ptr<juce::AudioProcessorEditor> editor(plugin.createEditorIfNeeded());
     if(!editor)return false;
     ProbeWindow window;window.setContentNonOwned(editor.get(),true);window.centreWithSize(700,580);window.setVisible(true);pump();
-    id connect=findConnect((NSView*)window.getPeer()->getNativeHandle());
+    auto* view=(NSView*)window.getPeer()->getNativeHandle();
+    id connect=findButton(view,@"Connect");
     if(!connect){std::cerr<<"Connect accessibility action not found\n";window.clearContentComponent();return false;}
-    [connect accessibilityPerformPress];pump();
+    if(![connect accessibilityPerformPress]) {std::cerr<<"Connect accessibility action rejected\n";window.clearContentComponent();return false;}
+    // triggerClick posts a JUCE message. Wait for the public UI state change
+    // before suspending the UI loop to simulate audio; a fixed 50 ms races CI.
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+    while(!findButton(view,@"Disconnect") && std::chrono::steady_clock::now()<deadline)pump();
+    if(!findButton(view,@"Disconnect")) {std::cerr<<"Connect action did not reach the processor\n";window.clearContentComponent();return false;}
     sharestream::StreamEngine sender;sender.prepare(48000,128);if(!sender.connect(c))return false;
     juce::AudioBuffer<float> tx(2,128),rx(2,128);juce::MidiBuffer midi;
     int audible=0;const auto start=std::chrono::steady_clock::now();

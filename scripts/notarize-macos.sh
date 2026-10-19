@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/apple-retry.sh
 profile="${1:?Usage: bash scripts/notarize-macos.sh KEYCHAIN_PROFILE [SUBMISSION_ID]}"
 submission="${2:-}"
 notary() {
@@ -24,12 +25,12 @@ package_dir="$artifact_root/ShareStream-macOS"
 receiver_dir="$artifact_root/ShareStream-Receiver"
 for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app'; do
   if ! xcrun stapler validate "$package_dir/$bundle" > /dev/null 2>&1; then
-    xcrun stapler staple "$package_dir/$bundle"
+    retry_apple xcrun stapler staple "$package_dir/$bundle"
   fi
-  xcrun stapler validate "$package_dir/$bundle"
+  retry_apple xcrun stapler validate "$package_dir/$bundle"
   codesign --verify --deep --strict "$package_dir/$bundle"
 done
-spctl --assess --type execute --verbose=2 "$package_dir/Share Stream.app"
+retry_apple spctl --assess --type execute --verbose=2 "$package_dir/Share Stream.app"
 python3 - <<'PY'
 import json, os
 from pathlib import Path
