@@ -3,6 +3,7 @@
 # then sign/notarize the outer installer using the same owner identity.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/apple-retry.sh
 : "${SIGNING_IDENTITY:?Developer ID Application identity required}"
 profile="${1:?notarytool profile required}"
 artifact_root="${DIST_ROOT:-dist}"
@@ -12,7 +13,7 @@ for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app'; d
   if [ -e "$payload_dir/$bundle" ]; then rm -rf "$payload_dir/$bundle"; fi
   ditto "$artifact_root/ShareStream-macOS/$bundle" "$payload_dir/$bundle"
   codesign --verify --deep --strict -R '=anchor apple generic and certificate leaf[subject.OU] = "3WKK5AGY66"' "$payload_dir/$bundle"
-  xcrun stapler validate "$payload_dir/$bundle"
+  retry_apple xcrun stapler validate "$payload_dir/$bundle"
 done
 ditto -c -k --sequesterRsrc "$payload_dir" build/payload.zip
 cmake -S . -B build -DSHARE_STREAM_INSTALLER_PAYLOAD="$PWD/build/payload.zip"
@@ -26,9 +27,9 @@ notary() {
 }
 notary submit "$artifact_root/ShareStream-Setup-macOS.zip" --keychain-profile "$profile" --wait --timeout 10m --output-format json > build/notary-installer.json
 python3 -c 'import json; r=json.load(open("build/notary-installer.json")); print(r); assert r["status"]=="Accepted"'
-xcrun stapler staple "$installer"
-xcrun stapler validate "$installer"
-spctl --assess --type execute --verbose=2 "$installer"
+retry_apple xcrun stapler staple "$installer"
+retry_apple xcrun stapler validate "$installer"
+retry_apple spctl --assess --type execute --verbose=2 "$installer"
 ditto -c -k --sequesterRsrc --keepParent "$installer" "$artifact_root/ShareStream-Setup-macOS.zip"
 "$installer/Contents/MacOS/Share Stream Setup" --verify-payload
 python3 - <<'PY'

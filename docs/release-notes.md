@@ -16,6 +16,6 @@ Music, voice and screen in one private session, now on macOS, Windows and Linux.
 
 The two original macOS ZIPs remain available. AU is available on macOS; all platforms include VST3.
 
-**First update:** 0.3.1 has no updater. Install 0.4.0 once using the new installer; future releases appear inside Share Stream. Save your session before updating. Restart the standalone and DAW after installation. On Windows, close both before the installer replaces files.
+**First update:** 0.3.1 has no updater. Install 0.4.1 once using the new installer; future releases appear inside Share Stream. Save your session before updating. Restart the standalone and DAW after installation. On Windows, close both before the installer replaces files.
 
 Windows Setup is currently unsigned (no Windows code-signing certificate is configured). macOS binaries and Setup use only the owner’s Apple Developer ID and notarization. Checksums for every platform are in `SHA256SUMS.txt`; Apple’s report is in `NOTARIZATION.json`.
