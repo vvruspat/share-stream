@@ -17,6 +17,7 @@ import {
 import { ScreenStage, VoicePlayer } from "./components/Media.js";
 import { useCall } from "./call/useCall.js";
 import { participantToken, useParticipants } from "./call/useParticipants.js";
+import { loadDisplayName, saveDisplayName } from "./call/profile.js";
 import { parseInvitation, invitationLink, type Invitation } from "./call/invitation.js";
 import type { VoiceMode } from "./call/Call.js";
 
@@ -49,7 +50,7 @@ export function App() {
   const [inputs, setInputs] = useState<SelectOption[]>(defaultDevice);
   const [outputs, setOutputs] = useState<SelectOption[]>(defaultDevice);
   const [volume, setVolume] = useState(0.8);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(loadDisplayName);
   const roster = useParticipants(
     invite?.code || null,
     token,
@@ -57,6 +58,9 @@ export function App() {
     state.mic,
     state.speaking,
   );
+  useEffect(() => {
+    if (name) roster.rename(name);
+  }, [name, roster.rename]);
   const reportError = useCallback(
     (failure: unknown) => {
       void run(() => {
@@ -290,6 +294,7 @@ export function App() {
                 placeholder={own?.name || "Display name"}
                 onChange={(e) => {
                   setName(e.target.value);
+                  saveDisplayName(e.target.value);
                   roster.rename(e.target.value);
                 }}
               />

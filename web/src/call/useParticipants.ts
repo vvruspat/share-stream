@@ -71,7 +71,7 @@ export function useParticipants(
           source: "browser",
           connected: true,
           ...latest.current,
-          ...(name ? { name } : {}),
+          ...(name !== undefined ? { name } : {}),
         };
         const response = await fetch("/api/presence", {
           method: "POST",

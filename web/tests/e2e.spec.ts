@@ -607,3 +607,43 @@ test("overlay toolbar uses real fullscreen and handles cancelled and externally 
     await context.close();
   }
 });
+
+test("display name persists after reload and joins a different room from localStorage", async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext();
+  await synthetic(context);
+  const page = await context.newPage();
+  const name = "Studio partner";
+  try {
+    await page.goto(`${baseURL}/#room=${randomBytes(16).toString("hex")}&join=1`);
+    await expect(page.locator("#leave")).toBeVisible();
+    await page.locator("#voice-settings > button").click();
+    await page.locator("#participants > button").click();
+    await page.locator("#display-name").fill(name);
+    await expect(page.locator(".participant-name")).toContainText(name);
+    await page.locator("#leave").click();
+    await page.reload();
+    await page.locator("#voice-settings > button").click();
+    await expect(page.locator("#display-name")).toHaveValue(name);
+    await page.locator("#join").click();
+    await page.locator("#participants > button").click();
+    await expect(page.locator(".participant-name")).toContainText(name);
+    await page.locator("#leave").click();
+    await page.goto("about:blank");
+    await page.goto(`${baseURL}/#room=${randomBytes(16).toString("hex")}&join=1`);
+    await page.locator("#participants > button").click();
+    await expect(page.locator(".participant-name")).toContainText(name);
+    await page.locator("#voice-settings > button").click();
+    await page.locator("#display-name").fill("");
+    await expect(page.locator(".participant-name")).toContainText("Participant ");
+    expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    await page.locator("#leave").click();
+    await page.reload();
+    await page.locator("#voice-settings > button").click();
+    await expect(page.locator("#display-name")).toHaveValue("");
+  } finally {
+    await context.close();
+  }
+});

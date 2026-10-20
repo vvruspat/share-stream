@@ -62,8 +62,11 @@ storage. Copying a DAW project to another computer does not copy a person's ID.
 
 The public participant ID is a hash of that credential. Names do not merge
 participants. A default name is derived from the ID; a person may set their name
-under Voice settings. Names are session metadata, not operating-system account
-names. The list includes the current user and distinguishes music, voice-only,
+under Voice settings. The browser remembers this name in localStorage and sends
+it when joining another room or returning after a reload. Clearing the field
+removes the saved name and restores the ID-derived default. If storage is blocked,
+the entered name still works in the current session. Names are not read from
+operating-system accounts. The list includes the current user and distinguishes music, voice-only,
 muted and unjoined voice states. Speaking is shown only when actual WebRTC
 `audioLevel` telemetry crosses the activity threshold and the microphone is on.
 Missing activity telemetry does not produce a Speaking indicator.

@@ -75,12 +75,12 @@ export class PresenceRegistry {
         entry.browser = m.connected;
         entry.mic = m.connected && !!m.mic;
         entry.speaking = entry.mic && !!m.speaking;
-        if (m.name?.trim()) {
+        if (m.name !== undefined) {
           const clean = Array.from(m.name)
             .filter((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127)
             .join("")
             .trim();
-          if (clean) entry.name = clean;
+          entry.name = clean || `Participant ${id.slice(0, 4)}`;
         }
       }
       if (!entry.music && !entry.browser) entries.delete(id);
