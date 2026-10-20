@@ -164,7 +164,7 @@ Relay получает производный идентификатор ком�
 
 Один монорепозиторий: JUCE/C++ в `Source/`, UDP relay в `server/`,
 React/TypeScript/Vite+ в `web/`. Общие тестовые приглашения находятся в `Tests/Invitations.json`.
-На pull request и push в `main` GitHub Actions проверяет браузер, relay и universal-сборку macOS.
+На pull request GitHub Actions запускает только lint и тесты: веб, relay и C++ тестовые программы на macOS, Windows, Ubuntu и Fedora. Плагины, приложения, установщики и Docker-образы собираются только после push/мержа в `main`; публикация релиза — по тегу уже в `main`.
 Тег `vX.Y.Z` запускает подписанный релиз и выкладку backend через существующий Coolify.
 Подробная схема, секреты и порядок выпуска — в [release guide](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md).
 

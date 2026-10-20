@@ -29,7 +29,9 @@ ShareStreamProcessor::ShareStreamProcessor()
       const juce::String roomLabel="ShareStream-call-room-v1:"+juce::String(c.code);
       value->setProperty("room",juce::SHA256(roomLabel.toRawUTF8(),roomLabel.getNumBytesAsUTF8()).toHexString());
       value->setProperty("token",token);value->setProperty("source","plugin");value->setProperty("connected",s.running);
-      value->setProperty("music",s.running ? (!s.peer || s.waitingForAudio ? "connecting" : c.role==sharestream::Role::send ? "sending" : "listening") : juce::var());
+      juce::var music;
+      if(s.running)music=juce::String(!s.peer || s.waitingForAudio ? "connecting" : c.role==sharestream::Role::send ? "sending" : "listening");
+      value->setProperty("music",music);
       return juce::var(value);
     }) {
     config.code=sharestream::newRoomCode();

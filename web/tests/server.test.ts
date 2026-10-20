@@ -5,6 +5,9 @@ import type { ServerFrame } from "../shared/protocol.js";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createHmac } from "node:crypto";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { WebSocket } from "ws";
 import { createService, iceServers } from "../server/service.js";
 
@@ -12,10 +15,20 @@ const origin = "https://test.invalid";
 const id = (n: number) => n.toString(16).padStart(32, "0");
 const room = (n: number) => n.toString(16).padStart(64, "0");
 async function fixture() {
-  const service = createService({ origin, turnSecret: "test-secret" });
+  const clientDir = await mkdtemp(join(tmpdir(), "share-stream-web-test-"));
+  await mkdir(join(clientDir, "assets"));
+  await writeFile(
+    join(clientDir, "index.html"),
+    '<title>Share Stream Voice & screen</title><script src="/assets/test.js"></script>',
+  );
+  await writeFile(join(clientDir, "assets/test.js"), '"use strict";');
+  const service = createService({ origin, turnSecret: "test-secret", clientDir });
   service.server.listen(0, "127.0.0.1");
   await once(service.server, "listening");
-  onTestFinished(() => service.close());
+  onTestFinished(async () => {
+    await service.close();
+    await rm(clientDir, { recursive: true, force: true });
+  });
   const url = `ws://127.0.0.1:${(service.server.address() as AddressInfo).port}/signal`;
   async function peer(peerId: string, roomId = room(1), resume = id(99)) {
     const ws = new WebSocket(url, { origin });
@@ -161,7 +174,7 @@ test("HTTP serves only explicit assets with private-room security headers", asyn
   const html = await response.text();
   assert.match(html, /Voice & screen/);
   const script = html.match(/src="(\/assets\/[^"]+\.js)"/);
-  assert.ok(script, "HTML references the built hashed client");
+  assert.ok(script, "HTML references an allowed client asset");
   const asset = await fetch(base + script[1]);
   assert.equal(asset.status, 200);
   assert.match(asset.headers.get("content-type")!, /javascript/);

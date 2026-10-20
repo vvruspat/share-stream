@@ -2,10 +2,16 @@
 
 The repository contains the native JUCE plugin/receiver, browser client, signaling server and UDP relay. They share a release version and invitation contract.
 
+Pull requests run lint and tests only. Native CMake product targets are disabled,
+browser tests use Vite's development server, and no distributables or Docker
+images are built/uploaded. Full artifact builds run after a push/merge to main.
+Publication is a separate tagged-release step, also restricted to commits
+already merged into main.
+
 ## Create a release
 
 1. Update the version in `CMakeLists.txt`, `web/package.json`, the root and `packages[""]` entries of `web/package-lock.json`, `web/shared/protocol.ts`, and `web/compose.yaml`.
-2. Update `docs/release-notes.md`. Push the tested commit to `main`.
+2. Update `docs/release-notes.md`. Merge the tested pull request into `main`.
 3. Tag that commit and push the tag:
 
    ```sh

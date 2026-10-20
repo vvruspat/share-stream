@@ -1,25 +1,36 @@
-name: Windows and Linux native packages
+name: Windows and Linux
 on:
   workflow_call:
+    inputs:
+      tests_only:
+        description: Compile and run tests without product targets or packages
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   windows:
-    name: Windows x64 · VST3 + standalone + Setup
+    name: ${{ inputs.tests_only && 'Windows x64 native tests' || 'Windows x64 · VST3 + standalone + Setup' }}
     runs-on: windows-2022
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Native tests
+        if: inputs.tests_only
+        run: bash scripts/ci/test-native.sh
+        shell: bash
       - run: ./scripts/ci/build-windows.ps1
+        if: ${{ !inputs.tests_only }}
         shell: pwsh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.tests_only }}
         with:
           name: native-windows
           path: dist/ShareStream-Setup-Windows-x64.exe
           if-no-files-found: error
           retention-days: 14
   linux:
-    name: ${{ matrix.name }} · VST3 + standalone
+    name: ${{ matrix.name }} · ${{ inputs.tests_only && 'native tests' || 'VST3 + standalone' }}
     runs-on: ubuntu-24.04
     container: ${{ matrix.image }}
     timeout-minutes: 45
@@ -54,12 +65,18 @@ jobs:
               xorg-x11-server-Xvfb xorg-x11-xauth rpm-build polkit
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Native tests
+        if: inputs.tests_only
+        shell: bash
+        run: bash scripts/ci/test-native.sh
       - name: Compile and test native streaming, plugin and updater
+        if: ${{ !inputs.tests_only }}
         shell: bash
         env:
           PACKAGE: ${{ matrix.package }}
         run: bash scripts/ci/build-linux.sh "$PACKAGE"
       - name: Install package and probe installed VST3
+        if: ${{ !inputs.tests_only }}
         shell: bash
         env:
           PACKAGE: ${{ matrix.package }}
@@ -75,6 +92,7 @@ jobs:
           test ! -f '/opt/share-stream/Share Stream'
           test ! -d '/usr/lib/vst3/Share Stream.vst3'
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.tests_only }}
         with:
           name: native-${{ matrix.artifact }}
           path: dist/ShareStream-*

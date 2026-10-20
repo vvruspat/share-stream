@@ -28,10 +28,37 @@ Node 24.22.0 is pinned in `web/.node-version`. The wrapper can run it without ch
 Install Xcode command line tools, CMake 3.22+ and Ninja, then:
 
 ```sh
-bash scripts/ci/build-native.sh
+bash scripts/ci/test-native.sh
 ```
 
-This builds universal arm64/x86_64 plugins and receiver, runs native/relay tests and a VST3 host probe. It does not install plugins or create a distributable archive. macOS packaging requires the owner's Developer ID; see the root README and [release guide](docs/releases.md).
+This compiles and runs test executables with `SHARE_STREAM_BUILD_PRODUCTS=OFF`.
+The CMake configuration contains no plugin, receiver, host-probe or installer
+targets. Audio processor/editor, real UDP transport, codecs and updater
+transaction tests still run. On macOS it tests the host architecture.
+
+After merging to main, `bash scripts/ci/build-native.sh` performs full universal
+product builds, host probes and Setup validation. macOS release packaging requires
+the owner's Developer ID; see the root README and [release guide](docs/releases.md).
+
+## CI stages
+
+Pull requests run lint, formatting/type checks, Python tests, native test binaries
+on macOS/Windows/Ubuntu/Fedora, and web unit/browser tests. Browser tests use the
+Vite development server (`TEST_WEB_DEV=1`); unit tests use isolated static-file
+fixtures. They require no production web bundle. PRs do not build/upload plugins,
+apps, installers, packages or Docker images, and never sign, deploy or publish.
+
+Pushes to main run the full product/package and backend-image builds. Releases
+remain explicit `vX.Y.Z` tags whose commit has already been merged into main;
+the release version gate validates this before any builds or secrets are used.
+
+To reproduce the web PR checks without generating `web/dist`:
+
+```sh
+bash scripts/web.sh run check
+bash scripts/web.sh test
+TEST_WEB_DEV=1 bash scripts/web.sh run test:e2e
+```
 
 Keep music transport separate from browser screen and voice. Do not start connections or capture merely because the DAW restores a project. Preserve compatibility with existing invitation links and test cross-language protocol changes against the shared fixtures.
 
