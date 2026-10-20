@@ -12,9 +12,10 @@
 
 Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
 Default relay: **stream.whitesquirrel.digital:48100 UDP**.
-Version **0.4.1** adds GitHub Releases updates and combined installers.
-The next release adds live streaming quality (Float32, PCM24, Opus 320 kbps),
-independent Send/Listen monitoring, partner presence and one-action invitations.
+Version **0.4.2** adds a compact session interface, stereo monitoring meters,
+shared participant presence and remembered browser names. It includes live streaming
+quality (Float32, PCM24, Opus 320 kbps), independent Send/Listen monitoring,
+one-action invitations, GitHub Releases updates and combined installers.
 Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
 One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
 The browser service uses React, TypeScript and Vite+, with styled Radix UI controls

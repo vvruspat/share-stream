@@ -1,4 +1,9 @@
-More control over a shared mixing session, on macOS, Windows and Linux.
+Share Stream 0.4.2 brings a simpler session interface and more control over shared mixing on macOS, Windows and Linux.
+
+- A compact plug-in interface with a stereo level meter inside the local-monitor slider, collapsible settings and participants, and a scrollable layout. The meter reflects your local output; Send monitoring never changes the partner’s stream.
+- A cleaner browser stage with microphone, screen-sharing and fullscreen controls, plus collapsible voice settings and participants.
+- The native client and browser share participant presence. Set **Your name** in voice settings; it is remembered in this browser across rooms and reloads. Opening voice and screen from the native client keeps one participant identity and the same invitation.
+- The default audio relay is now **stream.whitesquirrel.digital:48100 UDP**. Existing invitations and saved projects using the former default IP are migrated automatically; custom relay settings are preserved.
 
 - A separate partner indicator shows when the listener/sender is connected.
 - Independent, automatable **Send / local monitor** and **Listen / local monitor** volumes, with a 20 ms smoothing ramp, mute and double-click reset to 0 dB. Send monitoring never changes the partner's level. Both values are saved in the DAW project.
@@ -25,6 +30,6 @@ Combined installers and the built-in updater remain available:
 
 The two original macOS ZIPs remain available. AU is available on macOS; all platforms include VST3.
 
-**First update:** 0.3.1 has no updater. Install 0.4.1 once using the new installer; future releases appear inside Share Stream. Save your session before updating. Restart the standalone and DAW after installation. On Windows, close both before the installer replaces files.
+**First update:** 0.3.1 has no updater. Install 0.4.2 once using the combined installer; future releases appear inside Share Stream. Save your session before updating. Restart the standalone and DAW after installation. On Windows, close both before the installer replaces files.
 
 Windows Setup is currently unsigned (no Windows code-signing certificate is configured). macOS binaries and Setup use only the owner’s Apple Developer ID and notarization. Checksums for every platform are in `SHA256SUMS.txt`; Apple’s report is in `NOTARIZATION.json`.
