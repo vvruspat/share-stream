@@ -1,28 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  ArrowRightIcon,
-  CheckIcon,
-  ClipboardDocumentIcon,
+  ArrowUpTrayIcon,
   ComputerDesktopIcon,
-  ExclamationTriangleIcon,
-  LinkIcon,
   LockClosedIcon,
   MicrophoneIcon,
-  MusicalNoteIcon,
-  PhoneXMarkIcon,
-  SignalIcon,
-  SpeakerWaveIcon,
 } from "@heroicons/react/24/outline";
 import {
   Button,
+  Disclosure,
   Select,
   Slider,
+  Tooltip,
   TooltipProvider,
   type SelectOption,
 } from "./components/ui/index.js";
 import { ScreenStage, VoicePlayer } from "./components/Media.js";
 import { useCall } from "./call/useCall.js";
-import { randomId } from "./call/crypto.js";
+import { participantToken, useParticipants } from "./call/useParticipants.js";
+import { loadDisplayName, saveDisplayName } from "./call/profile.js";
 import { parseInvitation, invitationLink, type Invitation } from "./call/invitation.js";
 import type { VoiceMode } from "./call/Call.js";
 
@@ -31,11 +26,11 @@ const supported =
   typeof window.RTCPeerConnection === "function" &&
   !!crypto.subtle;
 const outputSupported = "setSinkId" in HTMLMediaElement.prototype;
-function initialRoom(): Invitation {
+function initialRoom(): Invitation | null {
   try {
     return parseInvitation(location.href);
   } catch {
-    return { code: randomId(), autoJoin: false };
+    return null;
   }
 }
 const defaultDevice = [{ value: "", label: "System default" }];
@@ -46,17 +41,26 @@ const modes: SelectOption[] = [
 
 export function App() {
   const { call, state, remote, voiceStream, screenStream, localScreen, error, run } = useCall();
-  const [initialInvite] = useState(initialRoom);
-  const [room, setRoom] = useState(initialInvite.code);
-  const [relay, setRelay] = useState(initialInvite.relay);
+  const [invite] = useState(initialRoom);
+  const [token] = useState(() => participantToken(invite?.code || null));
   const [joining, setJoining] = useState(false);
   const [sharing, setSharing] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [inputs, setInputs] = useState<SelectOption[]>(defaultDevice);
   const [outputs, setOutputs] = useState<SelectOption[]>(defaultDevice);
   const [volume, setVolume] = useState(0.8);
+  const [name, setName] = useState(loadDisplayName);
+  const roster = useParticipants(
+    invite?.code || null,
+    token,
+    state.active,
+    state.mic,
+    state.speaking,
+  );
+  useEffect(() => {
+    if (name) roster.rename(name);
+  }, [name, roster.rename]);
   const reportError = useCallback(
     (failure: unknown) => {
       void run(() => {
@@ -67,13 +71,10 @@ export function App() {
   );
 
   useEffect(() => {
-    history.replaceState(null, "", invitationLink(initialInvite, location.origin, false));
-  }, [initialInvite]);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1800);
-    return () => clearTimeout(timer);
-  }, [copied]);
+    // Keep the private browser/plugin binding in this tab's session storage,
+    // never in a shareable invitation or an HTTP request URL.
+    if (invite) history.replaceState(null, "", invitationLink(invite, location.origin, false));
+  }, [invite]);
   const devices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
     const list = await navigator.mediaDevices.enumerateDevices();
@@ -100,17 +101,13 @@ export function App() {
     navigator.mediaDevices?.addEventListener("devicechange", changed);
     return () => navigator.mediaDevices?.removeEventListener("devicechange", changed);
   }, [devices]);
-
-  // Native Voice & screen supplies explicit join intent in the fragment.
-  // Signaling never opens the microphone or screen. Call.leave() invalidates
-  // the first pending join during React StrictMode's effect cleanup.
   useEffect(() => {
-    if (!supported || !initialInvite.autoJoin) return;
+    if (!supported || !invite?.autoJoin) return;
     let live = true;
     setJoining(true);
     void run(async () => {
       try {
-        await call.join(initialInvite.code);
+        await call.join(invite.code);
         await devices();
       } finally {
         if (live) setJoining(false);
@@ -119,34 +116,17 @@ export function App() {
     return () => {
       live = false;
     };
-  }, [call, initialInvite, run, devices]);
-
+  }, [call, invite, run, devices]);
   const join = () =>
     run(async () => {
+      if (!invite) return;
       setJoining(true);
       try {
-        const invite = parseInvitation(room);
-        setRoom(invite.code);
-        const endpoint = invite.relay || relay;
-        setRelay(endpoint);
-        history.replaceState(
-          null,
-          "",
-          invitationLink({ ...invite, relay: endpoint }, location.origin, false),
-        );
         await call.join(invite.code);
         await devices();
       } finally {
         setJoining(false);
       }
-    });
-  const copy = () =>
-    run(async () => {
-      const invite = parseInvitation(room);
-      await navigator.clipboard.writeText(
-        invitationLink({ ...invite, relay: invite.relay || relay }, location.origin),
-      );
-      setCopied(true);
     });
   const micLabel = state.micBusy
     ? "Opening microphone…"
@@ -155,168 +135,127 @@ export function App() {
       : call.micStream
         ? "Unmute microphone"
         : "Enable microphone";
-  const remoteMic = remote.voicePaused
-    ? "Partner’s voice paused · update their page"
-    : remote.mic
-      ? "Partner’s mic on"
-      : "Partner’s mic off";
   const modeNote =
     state.voiceMode === "headphones"
       ? "Use headphones. Echo cancellation and automatic microphone processing are off for mixing."
       : "For speakers: echo cancellation is on. macOS voice processing may lower other apps’ audio.";
-  const mediaStatus = state.voiceLimited
-    ? "Voice quality reduced · microphone stays connected"
-    : `${state.mic ? "Microphone on" : "Microphone off"} · ${state.screen ? "Screen on" : "Screen off"}`;
+  const own = roster.participants.find((p) => p.id === roster.id);
 
   return (
-    <TooltipProvider delayDuration={350}>
+    <TooltipProvider delayDuration={250}>
       <main>
         <header className="page-header">
-          <div>
-            <p className="eyebrow brand-kicker">AUDIO, ACROSS THE DISTANCE</p>
-            <h1>
-              Share Stream<span>Voice & screen</span>
-            </h1>
-          </div>
-          <span
-            id="status"
-            className={`status-badge ${state.peer ? "is-connected" : ""}`}
-            role="status"
-          >
-            <span className="status-dot" />
-            {state.state}
-          </span>
-        </header>
-
-        <section className="panel room-panel" aria-label="Room">
-          <div className="room-field">
-            <label htmlFor="room">
-              <LockClosedIcon />
-              PRIVATE ROOM
-            </label>
-            <input
-              id="room"
-              value={room}
-              onChange={(event) => setRoom(event.target.value)}
-              disabled={state.active || joining}
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="Paste your plugin invite or room code"
-            />
-            <p className="small">
-              One invite for music, voice and screen. Two people, one private session.
-            </p>
-          </div>
-          <div className="room-buttons">
-            {state.active ? (
-              <Button id="leave" variant="danger" onClick={() => call.leave()}>
-                <PhoneXMarkIcon />
-                Leave
-              </Button>
-            ) : (
-              <Button
-                id="join"
-                variant="primary"
-                disabled={!supported || joining}
-                onClick={() => {
-                  void join();
-                }}
-              >
-                <LinkIcon />
-                {joining ? "Joining…" : "Join room"}
-              </Button>
-            )}
-            <Button
-              id="copy"
-              onClick={() => {
-                void copy();
-              }}
+          <h1>
+            Share Stream <span>/ Voice & screen</span>
+          </h1>
+          <div className="connection-controls">
+            <span
+              id="status"
+              className={`status-badge ${state.state.startsWith("Connected") ? "is-connected" : ""}`}
+              role="status"
             >
-              {copied ? <CheckIcon /> : <ClipboardDocumentIcon />}
-              {copied ? "Copied" : "Copy invite"}
-            </Button>
+              <span className="status-dot" />
+              {state.state.startsWith("Connected") ? "Connected" : state.state}
+            </span>
+            {invite &&
+              (state.active ? (
+                <Button id="leave" variant="ghost" onClick={() => call.leave()}>
+                  Leave
+                </Button>
+              ) : (
+                <Button id="join" disabled={!supported || joining} onClick={() => void join()}>
+                  {joining ? "Joining…" : "Join session"}
+                </Button>
+              ))}
           </div>
-        </section>
-        <div id="error" className="error-banner" role="alert" hidden={!error && supported}>
-          <ExclamationTriangleIcon />
-          <span>
-            {error ||
-              (!supported
-                ? "Open this page over HTTPS in a recent Chrome, Edge, Firefox or Safari browser."
-                : "")}
-          </span>
-        </div>
-
+        </header>
+        {!invite && (
+          <div className="session-message" role="status">
+            Open Voice & screen from your Share Stream plugin to join its session.
+          </div>
+        )}
         <ScreenStage
           stream={screenStream}
           local={localScreen}
           sharing={!!remote.screen}
-          remoteMic={remoteMic}
+          error={
+            error ||
+            (!supported
+              ? "Open this page over HTTPS in a recent Chrome, Edge, Firefox or Safari browser."
+              : "")
+          }
           onError={reportError}
         >
-          <div className="controls">
-            <div className="control-buttons">
-              <Button
-                id="mic"
-                active={state.mic}
-                aria-pressed={state.mic}
-                disabled={!state.active || state.micBusy}
-                onClick={() => {
-                  void run(async () => {
-                    await call.toggleMic();
-                    await devices();
-                  });
-                }}
-              >
+          <Tooltip content={micLabel}>
+            <Button
+              id="mic"
+              variant="ghost"
+              className="icon-button"
+              aria-label={micLabel}
+              active={state.mic}
+              aria-pressed={state.mic}
+              disabled={!state.active || state.micBusy}
+              onClick={() =>
+                void run(async () => {
+                  await call.toggleMic();
+                  await devices();
+                })
+              }
+            >
+              <span className={`media-icon ${!state.mic ? "is-off" : ""}`}>
                 <MicrophoneIcon />
-                {micLabel}
-              </Button>
-              <Button
-                id="share"
-                active={state.screen}
-                aria-pressed={state.screen}
-                disabled={!state.active || sharing}
-                onClick={() => {
-                  void run(async () => {
-                    setSharing(true);
-                    try {
-                      await call.shareScreen();
-                    } finally {
-                      setSharing(false);
-                    }
-                  });
-                }}
-              >
+              </span>
+            </Button>
+          </Tooltip>
+          <Tooltip content={state.screen ? "Stop sharing" : "Share screen"}>
+            <Button
+              id="share"
+              variant="ghost"
+              className="icon-button"
+              aria-label={state.screen ? "Stop sharing" : "Share screen"}
+              active={state.screen}
+              aria-pressed={state.screen}
+              disabled={!state.active || sharing}
+              onClick={() =>
+                void run(async () => {
+                  setSharing(true);
+                  try {
+                    await call.shareScreen();
+                  } catch (failure) {
+                    // Dismissing the browser's source picker is a neutral action.
+                    if (!(failure instanceof DOMException && failure.name === "NotAllowedError"))
+                      throw failure;
+                  } finally {
+                    setSharing(false);
+                  }
+                })
+              }
+            >
+              <span className={`media-icon ${state.screen ? "is-off" : "screen-upload"}`}>
                 <ComputerDesktopIcon />
-                {state.screen ? "Stop sharing" : "Share screen"}
-              </Button>
-            </div>
-            <span id="media-status" className="small">
-              {mediaStatus}
-            </span>
-          </div>
+                {!state.screen && <ArrowUpTrayIcon className="upload-arrow" />}
+              </span>
+            </Button>
+          </Tooltip>
         </ScreenStage>
-
-        <section className="bottom-grid">
-          <section className="panel devices" aria-labelledby="devices-heading">
-            <div className="section-heading">
-              <SpeakerWaveIcon />
-              <h2 id="devices-heading">Voice devices</h2>
+        <Disclosure title="Voice settings" id="voice-settings">
+          <div className="voice-settings-grid">
+            <div>
+              <Select
+                id="voice-mode"
+                label="Voice mode"
+                value={state.voiceMode}
+                options={modes}
+                disabled={state.micBusy}
+                describedBy="voice-mode-note"
+                onValueChange={(mode) =>
+                  void run(() => call.setVoiceMode(mode as VoiceMode, input))
+                }
+              />
+              <p id="voice-mode-note" className="small mode-note">
+                {modeNote}
+              </p>
             </div>
-            <Select
-              id="voice-mode"
-              label="Voice mode"
-              value={state.voiceMode}
-              options={modes}
-              disabled={state.micBusy}
-              describedBy="voice-mode-note"
-              onValueChange={(mode) => {
-                void run(() => call.setVoiceMode(mode as VoiceMode, input));
-              }}
-            />
-            <p id="voice-mode-note" className="small mode-note">
-              {modeNote}
-            </p>
             <div className="device-grid">
               <Select
                 id="input"
@@ -346,66 +285,85 @@ export function App() {
               value={volume}
               onValueChange={setVolume}
             />
-            <VoicePlayer
-              stream={voiceStream}
-              volume={volume}
-              output={output}
-              onError={reportError}
-            />
-          </section>
-
-          <section className="panel priority" aria-labelledby="streams-heading">
-            <div className="section-heading">
-              <SignalIcon />
-              <h2 id="streams-heading">Three independent streams</h2>
-              <span className="mini-badge">PRIORITY</span>
+            <div className="field">
+              <label htmlFor="display-name">Your name</label>
+              <input
+                id="display-name"
+                maxLength={60}
+                value={name}
+                placeholder={own?.name || "Display name"}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  saveDisplayName(e.target.value);
+                  roster.rename(e.target.value);
+                }}
+              />
             </div>
-            <div className="stream-row">
-              <span className="stream-order">01</span>
-              <div className="stream-icon music">
-                <MusicalNoteIcon />
-              </div>
-              <div className="stream-info">
-                <h3>Music audio</h3>
-                <p>Highest · native plugin / receiver</p>
-              </div>
-              <strong>~3.5 Mbps</strong>
-            </div>
-            <div className="stream-row">
-              <span className="stream-order">02</span>
-              <div className="stream-icon">
-                <ComputerDesktopIcon />
-              </div>
-              <div className="stream-info">
-                <h3>Screen</h3>
-                <p>Adaptive · up to 1080p / 15 fps</p>
-              </div>
-              <strong id="screen-budget">≤{(state.screenBitrate / 1000000).toFixed(1)} Mbps</strong>
-            </div>
-            <div className="stream-row">
-              <span className="stream-order">03</span>
-              <div className="stream-icon">
-                <MicrophoneIcon />
-              </div>
-              <div className="stream-info">
-                <h3>Voice</h3>
-                <p>Mono Opus · 80 ms receive buffer target</p>
-              </div>
-              <strong id="voice-budget">≤{state.voiceBitrate / 1000} kbps</strong>
-            </div>
-            <p id="priority-note" className="small priority-note">
-              <ArrowRightIcon />
-              On congestion, voice bitrate drops first, then screen quality. Voice stays connected;
-              music continues through Share Stream.
+          </div>
+          {state.voiceLimited && (
+            <p className="small">Voice quality reduced to keep the call connected.</p>
+          )}
+        </Disclosure>
+        <Disclosure
+          title={
+            <>
+              Participants <span className="participant-count">· {roster.participants.length}</span>
+            </>
+          }
+          id="participants"
+        >
+          {roster.unavailable && (
+            <p className="small" role="status">
+              Participant information is temporarily unavailable. Your media connection is
+              unchanged.
             </p>
-          </section>
-        </section>
+          )}
+          {!state.active && <p className="small">Join the session to see who is here.</p>}
+          <ul className="participant-list">
+            {roster.participants.map((p) => {
+              const self = p.id === roster.id;
+              const mic = self ? state.mic : p.mic;
+              const speaking = mic && (self ? state.speaking : state.remoteSpeaking || p.speaking);
+              return (
+                <li key={p.id} className="participant" data-participant-id={p.id}>
+                  <span className="avatar" aria-hidden="true">
+                    {Array.from(p.name)[0]?.toUpperCase()}
+                  </span>
+                  <div className="participant-info">
+                    <span className="participant-name">
+                      {p.name} {self && <span className="small">(you)</span>}
+                    </span>
+                    <span className="small">
+                      {p.music === "sending"
+                        ? "Sending music"
+                        : p.music === "listening"
+                          ? "Listening to music"
+                          : p.music === "connecting"
+                            ? "Connecting music…"
+                            : "Voice only · Plugin not connected"}
+                    </span>
+                  </div>
+                  <span className={`participant-mic ${speaking ? "is-speaking" : ""}`}>
+                    {!p.browser
+                      ? "Voice not joined"
+                      : speaking
+                        ? "Speaking"
+                        : mic
+                          ? "Mic on"
+                          : "Mic off"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Disclosure>
+        <VoicePlayer stream={voiceStream} volume={volume} output={output} onError={reportError} />
         <footer>
+          <span>Music streams through the plugin</span>
           <span>
             <LockClosedIcon />
-            Encrypted media · direct connection with private TURN fallback
+            Private session · No recording
           </span>
-          <span>Web {__APP_VERSION__} · No recording</span>
         </footer>
       </main>
     </TooltipProvider>

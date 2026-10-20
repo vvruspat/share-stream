@@ -1,5 +1,16 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { Select as RadixSelect, Slider as RadixSlider, Tooltip as RadixTooltip } from "radix-ui";
+import {
+  createContext,
+  useContext,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
+import {
+  Collapsible,
+  Select as RadixSelect,
+  Slider as RadixSlider,
+  Tooltip as RadixTooltip,
+} from "radix-ui";
 import { CheckIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 
 export function Button({
@@ -120,16 +131,41 @@ export function Slider({
 }
 
 export const TooltipProvider = RadixTooltip.Provider;
+export const TooltipContainer = createContext<HTMLElement | null>(null);
 export function Tooltip({ children, content }: { children: ReactNode; content: string }) {
+  const container = useContext(TooltipContainer);
   return (
     <RadixTooltip.Root>
       <RadixTooltip.Trigger asChild>{children}</RadixTooltip.Trigger>
-      <RadixTooltip.Portal>
+      <RadixTooltip.Portal container={container}>
         <RadixTooltip.Content className="tooltip" sideOffset={8}>
           {content}
           <RadixTooltip.Arrow className="tooltip-arrow" />
         </RadixTooltip.Content>
       </RadixTooltip.Portal>
     </RadixTooltip.Root>
+  );
+}
+
+export function Disclosure({
+  title,
+  children,
+  id,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+  id: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen} className="disclosure" id={id}>
+      <Collapsible.Trigger className="disclosure-trigger">
+        <ChevronDownIcon />
+        {title}
+      </Collapsible.Trigger>
+      <Collapsible.Content forceMount hidden={!open} className="disclosure-content">
+        {children}
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
 }

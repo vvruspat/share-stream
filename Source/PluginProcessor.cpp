@@ -1,5 +1,6 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Invitation.h"
 
 static juce::AudioProcessorValueTreeState::ParameterLayout monitorParameters() {
     juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -21,7 +22,18 @@ static float monitorLevel(const std::atomic<float>* value) {
 ShareStreamProcessor::ShareStreamProcessor()
   : AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true)
                                    .withOutput("Output",juce::AudioChannelSet::stereo(),true)),
-    parameters(*this,nullptr,"Monitor",monitorParameters()) {
+    parameters(*this,nullptr,"Monitor",monitorParameters()), presence([this] {
+      const auto c=configuration();const auto s=statistics();
+      const auto token=sharestream::ParticipantPresence::localToken(c.code);
+      auto* value=new juce::DynamicObject;
+      const juce::String roomLabel="ShareStream-call-room-v1:"+juce::String(c.code);
+      value->setProperty("room",juce::SHA256(roomLabel.toRawUTF8(),roomLabel.getNumBytesAsUTF8()).toHexString());
+      value->setProperty("token",token);value->setProperty("source","plugin");value->setProperty("connected",s.running);
+      juce::var music;
+      if(s.running)music=juce::String(!s.peer || s.waitingForAudio ? "connecting" : c.role==sharestream::Role::send ? "sending" : "listening");
+      value->setProperty("music",music);
+      return juce::var(value);
+    }) {
     config.code=sharestream::newRoomCode();
     sendMonitorValue=parameters.getRawParameterValue("sendMonitorDb");
     listenMonitorValue=parameters.getRawParameterValue("listenMonitorDb");
@@ -29,6 +41,7 @@ ShareStreamProcessor::ShareStreamProcessor()
     listen.store(config.role==sharestream::Role::receive);
 }
 void ShareStreamProcessor::prepareToPlay(double rate,int block) {
+    meterSampleRate.store(rate);
     monitorGain.reset(rate,0.02);
     monitorGain.setCurrentAndTargetValue(monitorLevel(listen.load()?listenMonitorValue:sendMonitorValue));
     engine.prepare(rate,block);
@@ -37,7 +50,7 @@ void ShareStreamProcessor::prepareToPlay(double rate,int block) {
 // DAWs can release and prepare audio when playback, monitoring, or the device
 // changes. Retain the user's Connect intent; explicit Disconnect/state restore
 // still stops it, and the next prepare re-establishes the same room.
-void ShareStreamProcessor::releaseResources() { engine.disconnect(); }
+void ShareStreamProcessor::releaseResources() { engine.disconnect(); meterTime.store(0); }
 bool ShareStreamProcessor::isBusesLayoutSupported(const BusesLayout& layout) const {
     auto in=layout.getMainInputChannelSet(),out=layout.getMainOutputChannelSet();
     return (out==juce::AudioChannelSet::mono() || out==juce::AudioChannelSet::stereo()) &&
@@ -65,23 +78,48 @@ void ShareStreamProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::Mi
         const float gain=monitorGain.getNextValue();
         for(int ch=0;ch<audio.getNumChannels();++ch)audio.getWritePointer(ch)[i]*=gain;
     }
+    // Meter the actual local output, after smoothing and monitoring gain. Audio
+    // capture for the remote peer has already happened above this point.
+    for(int ch=0;ch<2;++ch)monitorPeak[ch].store(audio.getNumSamples()>0 && audio.getNumChannels()>0
+        ? audio.getMagnitude(juce::jmin(ch,audio.getNumChannels()-1),0,audio.getNumSamples()) : 0,std::memory_order_relaxed);
+    meterTime.store(juce::Time::getMillisecondCounterHiRes()*1000,std::memory_order_release);
 }
 sharestream::Connection ShareStreamProcessor::configuration() const { std::lock_guard lock(configMutex); return config; }
 void ShareStreamProcessor::setConfiguration(const sharestream::Connection& value) {
+    auto normalized=value;normalized.host=sharestream::canonicalRelayHost(normalized.host);
     bool reconnect=false;
     { std::lock_guard lock(configMutex);reconnect=connectionRequested.load() && config.role!=value.role; }
     if(reconnect)engine.disconnect();
-    { std::lock_guard lock(configMutex);config=value;listen.store(config.role==sharestream::Role::receive); }
-    if(reconnect)connectionRequested.store(engine.connect(value));
+    { std::lock_guard lock(configMutex);config=normalized;listen.store(config.role==sharestream::Role::receive); }
+    if(reconnect)connectionRequested.store(engine.connect(normalized));
     else engine.setQuality(value.quality);
 }
-bool ShareStreamProcessor::start() { const bool connected=engine.connect(configuration()); connectionRequested.store(connected); return connected; }
+bool ShareStreamProcessor::start() { const bool connected=engine.connect(configuration()); connectionRequested.store(connected); if(connected)presence.activate(); return connected; }
 void ShareStreamProcessor::stop() { connectionRequested.store(false); engine.disconnect(); }
 sharestream::Statistics ShareStreamProcessor::statistics() const {
     auto stats=engine.statistics();
     stats.waitingForAudio=connectionRequested.load() && !stats.running;
     stats.running=stats.running || stats.waitingForAudio;
     return stats;
+}
+std::array<float,2> ShareStreamProcessor::monitorPeaks() const {
+    const auto last=meterTime.load(std::memory_order_acquire);
+    if(!last || juce::Time::getMillisecondCounterHiRes()*1000-last>250000)return {0,0};
+    return {monitorPeak[0].load(std::memory_order_relaxed),monitorPeak[1].load(std::memory_order_relaxed)};
+}
+juce::String ShareStreamProcessor::participantId() const { return sharestream::ParticipantPresence::identity(sharestream::ParticipantPresence::localToken(configuration().code)); }
+sharestream::ParticipantPresence::State ShareStreamProcessor::participants() const {
+    auto result=presence.state();
+    const juce::String label="ShareStream-call-room-v1:"+juce::String(configuration().code);
+    if(result.room!=juce::SHA256(label.toRawUTF8(),label.getNumBytesAsUTF8()).toHexString())return {};
+    return result;
+}
+juce::String ShareStreamProcessor::collaborationLink() {
+    const auto c=configuration();
+    const auto invite=sharestream::invitationLink({c.code,sharestream::RelayAddress{c.host,c.port}});
+    if(invite.empty())return {};
+    presence.activate();
+    return juce::String(invite)+"&participant="+sharestream::ParticipantPresence::localToken(c.code);
 }
 juce::AudioProcessorEditor* ShareStreamProcessor::createEditor() { return new ShareStreamEditor(*this); }
 void ShareStreamProcessor::getStateInformation(juce::MemoryBlock& data) {
@@ -97,7 +135,7 @@ void ShareStreamProcessor::setStateInformation(const void* data,int size) {
     auto state=getXmlFromBinary(data,size);
     if(!state || !state->hasTagName("ShareStream")) return;
     stop();
-    auto c=configuration(); c.host=state->getStringAttribute("server","13.140.153.191").toStdString();
+    auto c=configuration(); c.host=state->getStringAttribute("server",sharestream::defaultRelayHost).toStdString();
     c.port=juce::jlimit(1,65535,state->getIntAttribute("port",sharestream::defaultPort));
     auto code=state->getStringAttribute("room").toStdString();
     if(sharestream::parseRoom(code)) c.code=code;

@@ -1,7 +1,9 @@
 [
   { "input": "0123456789abcdef0123456789abcdef", "code": "0123456789abcdef0123456789abcdef" },
   { "input": "  0123456789ABCDEF0123456789ABCDEF  ", "code": "0123456789abcdef0123456789abcdef" },
-  { "input": "sharestream://13.140.153.191:48100/0123456789abcdef0123456789abcdef", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "13.140.153.191", "port": 48100 } },
+  { "input": "sharestream://13.140.153.191:48100/0123456789abcdef0123456789abcdef", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "stream.whitesquirrel.digital", "port": 48100 } },
+  { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef&relay=13.140.153.191&port=48100", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "stream.whitesquirrel.digital", "port": 48100 } },
+  { "input": "sharestream://stream.whitesquirrel.digital:48100/0123456789abcdef0123456789abcdef", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "stream.whitesquirrel.digital", "port": 48100 } },
   { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef", "code": "0123456789abcdef0123456789abcdef" },
   { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef&relay=relay.example.com&port=48123&join=1", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "relay.example.com", "port": 48123 } },
   { "input": "https://stream.whitesquirrel.digital/#join=1&port=48123&room=0123456789ABCDEF0123456789ABCDEF&relay=relay.example.com", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "relay.example.com", "port": 48123 } },
