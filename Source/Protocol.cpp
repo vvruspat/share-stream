@@ -14,6 +14,11 @@
 #endif
 
 namespace sharestream {
+std::string canonicalRelayHost(const std::string& host) {
+    // Upgrade the former built-in address in saved projects and invitations.
+    // Explicit third-party relays remain unchanged.
+    return host=="13.140.153.191" ? defaultRelayHost : host;
+}
 void randomBytes(void* p, size_t n) {
 #if defined(_WIN32)
     if (BCryptGenRandom(nullptr,static_cast<PUCHAR>(p),static_cast<ULONG>(n),BCRYPT_USE_SYSTEM_PREFERRED_RNG)!=0)

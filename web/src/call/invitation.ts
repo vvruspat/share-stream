@@ -7,7 +7,7 @@ export interface Invitation {
   relay?: RelayAddress;
   autoJoin: boolean;
 }
-export const defaultRelay: RelayAddress = { host: "13.140.153.191", port: 48100 };
+export const defaultRelay: RelayAddress = { host: "stream.whitesquirrel.digital", port: 48100 };
 const validCode = /^[a-f\d]{32}$/i;
 function parseRelay(host: string, port: string): RelayAddress {
   if (
@@ -17,7 +17,7 @@ function parseRelay(host: string, port: string): RelayAddress {
     Number(port) > 65535
   )
     throw new Error("Invalid relay address in the invite.");
-  return { host, port: Number(port) };
+  return { host: host === "13.140.153.191" ? defaultRelay.host : host, port: Number(port) };
 }
 export function parseInvitation(value: string): Invitation {
   const text = value.trim();
@@ -63,8 +63,8 @@ export function invitationLink(
   autoJoin = true,
 ): string {
   if (!validCode.test(invite.code)) throw new Error("Invalid room code.");
-  const relay = invite.relay || defaultRelay;
-  parseRelay(relay.host, String(relay.port));
+  const address = invite.relay || defaultRelay;
+  const relay = parseRelay(address.host, String(address.port));
   const parameters = new URLSearchParams({
     room: invite.code.toLowerCase(),
     relay: relay.host,

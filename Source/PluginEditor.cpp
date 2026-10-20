@@ -97,7 +97,8 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
 }
 ShareStreamEditor::~ShareStreamEditor(){stopTimer();viewport.setViewedComponent(nullptr,false);setLookAndFeel(nullptr);}
 void ShareStreamEditor::saveConfiguration(){
-    auto c=processor.configuration();c.host=server.getText().trim().toStdString();c.port=port.getText().getIntValue();c.code=room.getText().trim().toStdString();c.jitterMs=buffer.getSelectedId();
+    auto c=processor.configuration();c.host=sharestream::canonicalRelayHost(server.getText().trim().toStdString());c.port=port.getText().getIntValue();c.code=room.getText().trim().toStdString();c.jitterMs=buffer.getSelectedId();
+    if(server.getText().toStdString()!=c.host)server.setText(c.host,false);
     if(c.role==sharestream::Role::send && quality.getSelectedId()>0)c.quality=static_cast<sharestream::AudioQuality>(quality.getSelectedId()-1);processor.setConfiguration(c);
 }
 void ShareStreamEditor::updateMode(){

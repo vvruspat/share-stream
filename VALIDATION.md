@@ -1,5 +1,27 @@
 # Share Stream — validation
 
+## Session UI and PR checks (unreleased, 2026-10-20)
+
+- PR jobs run lint/typecheck, Python tests, native test executables and browser
+  tests. The test-only CMake configuration removes product/installer targets;
+  web tests use Vite's dev server and isolated HTTP asset fixtures. The first
+  revised run passed all five jobs on macOS, Windows, Ubuntu, Fedora and web,
+  with every product/package/image/upload step skipped and zero Actions artifacts.
+- Display names survive browser reloads and new rooms through localStorage.
+  Clearing the field resets the stored and server name. Nine browser scenarios
+  and 18 web unit tests pass locally, including this persistence flow and shared
+  native/browser identity. Native checks cover migration of saved relay addresses.
+- The default introduction host is `stream.whitesquirrel.digital:48100/UDP`.
+  Legacy links and saved projects using the former built-in IP migrate to the
+  domain while preserving the room, port and custom third-party relays.
+- Live DNS resolved that domain to the existing server. The UDP cookie handshake
+  passed; the relay service was active and bound to `0.0.0.0:48100`. A five-second
+  isolated encrypted stereo probe through the domain/relay passed: 1992 received
+  packets, zero reported lost/late/rejected packets, zero silent samples in the
+  steady window and one startup underrun. Relay RTT was about 18 ms. This is a
+  short synthetic network observation, not a physical audio-interface measurement.
+  HTTPS health also returned healthy. No server deployment/restart was needed.
+
 ## Stream controls and quality (unreleased, 2026-10-19)
 
 - Universal arm64/x86_64 VST3, AU and receiver build locally. Six native CTests pass:

@@ -10,6 +10,8 @@ namespace sharestream {
 constexpr int networkRate = 48000, packetFrames = 120, channels = 2;
 constexpr int headerBytes = 48, controlBytes = 64, audioBytes = 1048;
 constexpr int defaultPort = 48100;
+inline constexpr auto defaultRelayHost = "stream.whitesquirrel.digital";
+std::string canonicalRelayHost(const std::string&);
 enum class Role : uint8_t { send = 1, receive = 2 };
 enum class Kind : uint8_t { hello = 1, cookie = 2, join = 3, ready = 4, audio = 5, ping = 6, pong = 7, leave = 8, endpoint = 9, directPing = 10, directPong = 11, encodedAudio = 12, capabilities = 13 };
 enum class AudioQuality : uint8_t { float32 = 0, pcm24 = 1, opus320 = 2 };

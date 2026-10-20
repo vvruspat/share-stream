@@ -8,7 +8,7 @@
 
 namespace sharestream {
 struct Connection {
-    std::string host = "13.140.153.191";
+    std::string host = defaultRelayHost;
     int port = defaultPort;
     std::string code;
     Role role = Role::send;

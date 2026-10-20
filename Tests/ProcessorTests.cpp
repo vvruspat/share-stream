@@ -64,6 +64,14 @@ static void setGain(ShareStreamProcessor& processor,const char* id,float db) {
 }
 static void monitorMeter() {
     ShareStreamProcessor processor;processor.prepareToPlay(48000,128);
+    check(processor.configuration().host==defaultRelayHost,"new processors connect through the relay domain");
+    juce::XmlElement legacy("ShareStream");legacy.setAttribute("server","13.140.153.191");legacy.setAttribute("room",newRoomCode());
+    juce::MemoryBlock legacyState;juce::AudioProcessor::copyXmlToBinary(legacy,legacyState);
+    processor.setStateInformation(legacyState.getData(),static_cast<int>(legacyState.getSize()));
+    check(processor.configuration().host==defaultRelayHost,"saved projects migrate the former built-in relay IP to the domain");
+    auto custom=processor.configuration();custom.host="192.0.2.10";processor.setConfiguration(custom);
+    check(processor.configuration().host==custom.host,"custom relay addresses are preserved");
+    custom.host=defaultRelayHost;processor.setConfiguration(custom);
     juce::AudioBuffer<float> audio(2,128);juce::MidiBuffer midi;
     auto render=[&](float left,float right) {
         for(int block=0;block<20;++block) {
@@ -87,7 +95,7 @@ static void monitorMeter() {
     check(!juce::String(invitationLink(*invite)).contains("participant="),"shared invitations never copy the private participant binding");
     juce::MemoryBlock state;processor.getStateInformation(state);ShareStreamProcessor restored;restored.setStateInformation(state.getData(),static_cast<int>(state.getSize()));
     check(restored.participantId()==id,"participant identity survives DAW session restoration");
-    std::cout<<"PASS: real stereo post-monitor meter, silence, stopped audio and private browser/plugin identity\n";
+    std::cout<<"PASS: relay domain/migration, real stereo post-monitor meter, silence, stopped audio and private browser/plugin identity\n";
 }
 static void monitoring(Relay& relay) {
     ShareStreamProcessor sender;StreamEngine receiver;

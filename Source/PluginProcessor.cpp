@@ -86,11 +86,12 @@ void ShareStreamProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::Mi
 }
 sharestream::Connection ShareStreamProcessor::configuration() const { std::lock_guard lock(configMutex); return config; }
 void ShareStreamProcessor::setConfiguration(const sharestream::Connection& value) {
+    auto normalized=value;normalized.host=sharestream::canonicalRelayHost(normalized.host);
     bool reconnect=false;
     { std::lock_guard lock(configMutex);reconnect=connectionRequested.load() && config.role!=value.role; }
     if(reconnect)engine.disconnect();
-    { std::lock_guard lock(configMutex);config=value;listen.store(config.role==sharestream::Role::receive); }
-    if(reconnect)connectionRequested.store(engine.connect(value));
+    { std::lock_guard lock(configMutex);config=normalized;listen.store(config.role==sharestream::Role::receive); }
+    if(reconnect)connectionRequested.store(engine.connect(normalized));
     else engine.setQuality(value.quality);
 }
 bool ShareStreamProcessor::start() { const bool connected=engine.connect(configuration()); connectionRequested.store(connected); if(connected)presence.activate(); return connected; }
@@ -134,7 +135,7 @@ void ShareStreamProcessor::setStateInformation(const void* data,int size) {
     auto state=getXmlFromBinary(data,size);
     if(!state || !state->hasTagName("ShareStream")) return;
     stop();
-    auto c=configuration(); c.host=state->getStringAttribute("server","13.140.153.191").toStdString();
+    auto c=configuration(); c.host=state->getStringAttribute("server",sharestream::defaultRelayHost).toStdString();
     c.port=juce::jlimit(1,65535,state->getIntAttribute("port",sharestream::defaultPort));
     auto code=state->getStringAttribute("room").toStdString();
     if(sharestream::parseRoom(code)) c.code=code;

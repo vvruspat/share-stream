@@ -11,7 +11,7 @@
 ![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/web.png)
 
 Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
-Default relay: **13.140.153.191:48100 UDP**.
+Default relay: **stream.whitesquirrel.digital:48100 UDP**.
 Version **0.4.1** adds GitHub Releases updates and combined installers.
 The next release adds live streaming quality (Float32, PCM24, Opus 320 kbps),
 independent Send/Listen monitoring, partner presence and one-action invitations.
@@ -211,8 +211,8 @@ ctest --test-dir build --output-on-failure
 python3 -m unittest discover -s Tests -p 'test_*.py' -v
 python3 server/relay.py --host 127.0.0.1 --port 48101
 build/stream_probe --port 48101 --seconds 5
-build/stream_probe --server 13.140.153.191 --seconds 5
-build/stream_probe --server 13.140.153.191 --seconds 15 --jitter 40 --force-relay 1
+build/stream_probe --server stream.whitesquirrel.digital --seconds 5
+build/stream_probe --server stream.whitesquirrel.digital --seconds 15 --jitter 40 --force-relay 1
 build/stream_probe --port 48101 --send-rate 44100 --receive-rate 96000
 auval -v aufx Ss01 Shst
 ```

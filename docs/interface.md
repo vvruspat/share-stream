@@ -5,6 +5,11 @@ opens the browser in that existing room. The browser does not generate rooms,
 show a room-code field, or provide a second invitation workflow. Opening the
 browser never requests microphone or screen permission.
 
+Native introductions use `stream.whitesquirrel.digital:48100/UDP`. New invites
+carry this hostname. Saved projects and legacy invitations containing the former
+built-in relay IP migrate to this domain; custom relay addresses remain intact.
+The network worker resolves it through DNS before the existing UDP handshake.
+
 The transport still supports two people. There is one music sender and one
 listener, plus two independent browser media transports. Audio codecs, packet
 formats, encryption, congestion priorities and jitter-buffer behavior are

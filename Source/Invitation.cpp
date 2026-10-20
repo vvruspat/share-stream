@@ -9,7 +9,7 @@ static std::optional<RelayAddress> relayAddress(const juce::String& host, const 
     if (!validHost(host) || port.isEmpty() || port.length() > 5 || !port.containsOnly("0123456789")) return {};
     const auto number = port.getIntValue();
     if (number < 1 || number > 65535) return {};
-    return RelayAddress {host.toStdString(), number};
+    return RelayAddress {canonicalRelayHost(host.toStdString()), number};
 }
 std::optional<Invitation> parseInvitation(const std::string& value) {
     const auto text = juce::String(value).trim();
@@ -43,7 +43,7 @@ std::string invitationLink(const Invitation& invite, bool joinChat) {
     auto link = "https://stream.whitesquirrel.digital/#room=" + juce::String(invite.code).toLowerCase();
     if (invite.relay) {
         if (!validHost(invite.relay->host) || invite.relay->port < 1 || invite.relay->port > 65535) return {};
-        link += "&relay=" + juce::URL::addEscapeChars(invite.relay->host, true) + "&port=" + juce::String(invite.relay->port);
+        link += "&relay=" + juce::URL::addEscapeChars(canonicalRelayHost(invite.relay->host), true) + "&port=" + juce::String(invite.relay->port);
     }
     if (joinChat) link += "&join=1";
     return link.toStdString();
