@@ -19,6 +19,8 @@ export interface CallState {
   voiceLimited: boolean;
   voiceBitrate: number;
   screenBitrate: number;
+  speaking: boolean;
+  remoteSpeaking: boolean;
 }
 export type VoiceMode = "headphones" | "speakers";
 interface PeerConnection {
@@ -71,6 +73,10 @@ export class Call extends EventTarget {
   private refresh?: ReturnType<typeof setInterval>;
   private reconnect?: ReturnType<typeof setTimeout>;
   private joinRequest = 0;
+  private activity?: ReturnType<typeof setInterval>;
+  private activityBusy = false;
+  private speaking = false;
+  private remoteSpeaking = false;
   on<K extends keyof CallEvents>(type: K, callback: (detail: CallEvents[K]) => void): () => void {
     const listener = (event: Event) => callback((event as CustomEvent<CallEvents[K]>).detail);
     this.addEventListener(type, listener);
@@ -116,6 +122,8 @@ export class Call extends EventTarget {
       voiceLimited: this.voiceLimited,
       voiceBitrate: this.voiceBitrate,
       screenBitrate: this.screenBitrate,
+      speaking: this.speaking && !!this.localTrack("voice")?.enabled,
+      remoteSpeaking: this.remoteSpeaking,
     };
   }
   changed() {
@@ -132,6 +140,7 @@ export class Call extends EventTarget {
     this.changed();
     this.open();
     this.monitor = setInterval(() => this.measure().catch(() => {}), 2000);
+    this.activity = setInterval(() => void this.measureActivity(), 160);
     this.refresh = setInterval(() => {
       if (this.ws?.readyState === WebSocket.OPEN) this.ws.send('{"type":"refresh"}');
     }, 900000);
@@ -159,6 +168,8 @@ export class Call extends EventTarget {
       this.dropPeer();
       if ([1008, 4001, 4003].includes(event.code)) {
         this.leave();
+        this.state = event.code === 4001 ? "Session opened in another tab" : "Session ended";
+        this.changed();
         return;
       }
       this.state = "Reconnecting…";
@@ -561,6 +572,33 @@ export class Call extends EventTarget {
     await this.applyPressure(pressure);
     this.emit("network", { rtt, pressure });
   }
+  async measureActivity() {
+    const entry = this.pcs.get("voice"),
+      generation = this.generation;
+    if (!entry || this.activityBusy) return;
+    this.activityBusy = true;
+    try {
+      const report = await entry.pc.getStats();
+      if (generation !== this.generation) return;
+      let local = false,
+        remote = false;
+      for (const stat of report.values()) {
+        if (stat.kind !== "audio") continue;
+        if (stat.type === "media-source") local ||= (stat.audioLevel || 0) > 0.015;
+        if (stat.type === "inbound-rtp") remote ||= (stat.audioLevel || 0) > 0.015;
+      }
+      local &&= !!this.localTrack("voice")?.enabled;
+      if (local !== this.speaking || remote !== this.remoteSpeaking) {
+        this.speaking = local;
+        this.remoteSpeaking = remote;
+        this.changed();
+      }
+    } catch {
+      /* No audio-level telemetry means no Speaking indicator. */
+    } finally {
+      this.activityBusy = false;
+    }
+  }
   async applyPressure(pressure: boolean) {
     if (pressure) {
       this.bad++;
@@ -594,6 +632,7 @@ export class Call extends EventTarget {
     for (const e of this.pcs.values()) e.pc.close();
     this.pcs.clear();
     this.peer = null;
+    this.speaking = this.remoteSpeaking = false;
     this.bad = this.good = 0;
     this.voiceLimited = false;
     this.voiceBitrate = 64000;
@@ -607,6 +646,7 @@ export class Call extends EventTarget {
     this.active = false;
     clearTimeout(this.reconnect);
     clearInterval(this.monitor);
+    clearInterval(this.activity);
     clearInterval(this.refresh);
     this.ws?.close();
     this.ws = null;

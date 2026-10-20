@@ -1,6 +1,7 @@
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "StreamEngine.h"
+#include "ParticipantPresence.h"
 #include <limits>
 
 class ShareStreamProcessor final : public juce::AudioProcessor {
@@ -31,6 +32,11 @@ public:
     bool start();
     void stop();
     sharestream::Statistics statistics() const;
+    std::array<float,2> monitorPeaks() const;
+    double currentSampleRate() const { return meterSampleRate.load(); }
+    sharestream::ParticipantPresence::State participants() const;
+    juce::String participantId() const;
+    juce::String collaborationLink();
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
     juce::AudioProcessorValueTreeState parameters;
 private:
@@ -42,5 +48,9 @@ private:
     juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> monitorGain {1.0f};
     const std::atomic<float>* sendMonitorValue=nullptr;
     const std::atomic<float>* listenMonitorValue=nullptr;
+    std::array<std::atomic<float>,2> monitorPeak {};
+    std::atomic<juce::int64> meterTime {0};
+    std::atomic<double> meterSampleRate {0};
+    sharestream::ParticipantPresence presence;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ShareStreamProcessor)
 };

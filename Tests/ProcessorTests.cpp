@@ -62,6 +62,33 @@ static void setGain(ShareStreamProcessor& processor,const char* id,float db) {
     auto* value=processor.parameters.getParameter(id);
     value->setValueNotifyingHost(value->convertTo0to1(db));
 }
+static void monitorMeter() {
+    ShareStreamProcessor processor;processor.prepareToPlay(48000,128);
+    juce::AudioBuffer<float> audio(2,128);juce::MidiBuffer midi;
+    auto render=[&](float left,float right) {
+        for(int block=0;block<20;++block) {
+            for(int n=0;n<128;++n){audio.setSample(0,n,left);audio.setSample(1,n,right);}
+            processor.processBlock(audio,midi);
+        }
+        return processor.monitorPeaks();
+    };
+    auto levels=render(.25f,-.5f);
+    check(std::abs(levels[0]-.25f)<1e-6f && std::abs(levels[1]-.5f)<1e-6f,"real L/R meter channels remain independent at unity");
+    setGain(processor,"sendMonitorDb",-6);levels=render(.25f,-.5f);
+    const auto gain=juce::Decibels::decibelsToGain(-6.0f);
+    check(std::abs(levels[0]-.25f*gain)<1e-6f && std::abs(levels[1]-.5f*gain)<1e-6f,"meter measures the post-gain local output");
+    levels=render(0,0);
+    check(levels[0]==0 && levels[1]==0 && std::abs(processor.parameters.getRawParameterValue("sendMonitorDb")->load()+6)<.001f,"silence clears signal bars without moving gain");
+    render(.25f,-.5f);processor.releaseResources();levels=processor.monitorPeaks();
+    check(levels[0]==0 && levels[1]==0,"stopped audio cannot leave stale meter telemetry");
+    const auto id=processor.participantId();const auto privateLink=processor.collaborationLink();
+    const auto invite=parseInvitation(privateLink.toStdString());
+    check(invite.has_value() && privateLink.contains("&participant="),"Voice & screen binds this participant to the existing room");
+    check(!juce::String(invitationLink(*invite)).contains("participant="),"shared invitations never copy the private participant binding");
+    juce::MemoryBlock state;processor.getStateInformation(state);ShareStreamProcessor restored;restored.setStateInformation(state.getData(),static_cast<int>(state.getSize()));
+    check(restored.participantId()==id,"participant identity survives DAW session restoration");
+    std::cout<<"PASS: real stereo post-monitor meter, silence, stopped audio and private browser/plugin identity\n";
+}
 static void monitoring(Relay& relay) {
     ShareStreamProcessor sender;StreamEngine receiver;
     sender.prepareToPlay(48000,128);receiver.prepare(48000,128);
@@ -108,16 +135,21 @@ static void invitationActions(Relay& relay) {
     struct RestoreClipboard {juce::String value;~RestoreClipboard(){juce::SystemClipboard::copyTextToClipboard(value);}} restore{previousClipboard};
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
     auto click=[&](const juce::String& title) {
-        for(auto* child:editor->getChildren())if(auto* button=dynamic_cast<juce::TextButton*>(child))
+        std::function<juce::TextButton*(juce::Component*)> find=[&](juce::Component* parent)->juce::TextButton* {
+            for(auto* child:parent->getChildren()){if(auto* button=dynamic_cast<juce::TextButton*>(child))if(button->getButtonText()==title)return button;if(auto* result=find(child))return result;}return nullptr;
+        };
+        if(auto* button=find(editor.get()))
             if(button->getButtonText()==title) {check(button->isEnabled(),"live role/invite action remains enabled");button->onClick();return;}
         check(false,"public editor button exists");
     };
+    click("Create session");
+    check(processor.statistics().running,"Create session opens the music session");
     click("Copy invite");
     check(processor.statistics().running,"Copy invite starts the current room without a second Connect click");
     check(parseInvitation(juce::SystemClipboard::getTextFromClipboard().toStdString())->code==c.code,"copied invitation preserves the unified room token");
     click("Listen");
     check(processor.statistics().running && processor.configuration().role==Role::receive && processor.configuration().code==c.code,"live role change reconnects in the same room");
-    click("Send");
+    click("Send audio");
     check(processor.statistics().running && processor.configuration().role==Role::send,"reverse role change does not require manual Disconnect/Connect");
     const auto secondRoom=newRoomCode();
     juce::SystemClipboard::copyTextToClipboard(invitationLink({secondRoom,RelayAddress{"127.0.0.1",relay.port}}));
@@ -131,15 +163,32 @@ static void invitationActions(Relay& relay) {
 int main(int argc,char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
+        if(argc==4 && std::string(argv[1])=="--presence-probe") {
+            const juce::String roomLabel="ShareStream-call-room-v1:"+juce::String(argv[2]);
+            auto* value=new juce::DynamicObject;
+            value->setProperty("room",juce::SHA256(roomLabel.toRawUTF8(),roomLabel.getNumBytesAsUTF8()).toHexString());
+            value->setProperty("token",juce::String(argv[3]));value->setProperty("source","plugin");
+            value->setProperty("connected",true);value->setProperty("music","sending");
+            const juce::var body(value);
+            ParticipantPresence presence([body]{return body.clone();});presence.activate();
+            for(int attempt=0;attempt<100 && !presence.state().available;++attempt)juce::Thread::sleep(50);
+            const auto state=presence.state();check(state.available && state.participants.size()==1,"native HTTP presence reaches the real web service");
+            const auto& participant=state.participants[0];
+            check(participant.id==ParticipantPresence::identity(argv[3]) && participant.browser && participant.music=="sending" && participant.mic,
+                "native and browser registrations merge by credential-derived participant ID");
+            std::cout<<"PASS: native HTTPS/HTTP client, shared room hash, browser/plugin identity and live roster\n";return 0;
+        }
         if(argc==3 && std::string(argv[1])=="--snapshot") {
             ShareStreamProcessor preview;
             std::unique_ptr<juce::AudioProcessorEditor> editor(preview.createEditor());
             auto image=editor->createComponentSnapshot(editor->getLocalBounds());
             juce::FileOutputStream output{juce::File(argv[2])};
             check(output.openedOk(),"open editor preview image");
+            output.setPosition(0);output.truncate();
             check(juce::PNGImageFormat().writeImageToStream(image,output),"write editor preview image");
             return 0;
         }
+        monitorMeter();
         ShareStreamProcessor processor;
         check(std::isinf(processor.getTailLengthSeconds()),"network source must not advertise a zero tail");
         auto layout=processor.getBusesLayout();

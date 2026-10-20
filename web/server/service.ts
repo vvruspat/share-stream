@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
+import { PresenceRegistry } from "./presence.js";
 import {
   WEB_VERSION,
   type IceServer,
@@ -85,6 +86,8 @@ export function createService({
 }: ServiceOptions = {}) {
   const rooms = new Map<string, Map<string, Member>>(),
     joins = new Map<string, { start: number; count: number }>();
+  const presence = new PresenceRegistry(Date.now, maxRooms);
+  const presenceRates = new Map<string, { start: number; count: number }>();
   const headers = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
@@ -95,6 +98,39 @@ export function createService({
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   };
   const server = createServer(async (req, res) => {
+    if (req.url === "/api/presence" && req.method === "POST") {
+      const allowed = typeof origin === "string" ? [origin] : origin;
+      if (req.headers.origin && !allowed.includes(req.headers.origin)) {
+        res.writeHead(403, headers).end();
+        return;
+      }
+      const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress)
+        .split(",")[0]
+        .trim();
+      const now = Date.now(),
+        previous = presenceRates.get(ip);
+      const rate = !previous || now - previous.start > 10000 ? { start: now, count: 0 } : previous;
+      presenceRates.set(ip, rate);
+      if (++rate.count > 100) {
+        res.writeHead(429, headers).end();
+        return;
+      }
+      try {
+        req.setEncoding("utf8");
+        let body = "";
+        for await (const chunk of req) {
+          body += String(chunk);
+          if (body.length > 2048) throw new Error("Request too large");
+        }
+        const participants = presence.update(JSON.parse(body));
+        res
+          .writeHead(200, { ...headers, "Content-Type": "application/json" })
+          .end(JSON.stringify({ participants }));
+      } catch {
+        res.writeHead(400, headers).end("Participant information unavailable");
+      }
+      return;
+    }
     if (req.method !== "GET" && req.method !== "HEAD") {
       res.writeHead(405, headers).end();
       return;
@@ -276,6 +312,9 @@ export function createService({
       }
     }
     for (const [ip, rate] of joins) if (Date.now() - rate.start > 60000) joins.delete(ip);
+    for (const [ip, rate] of presenceRates)
+      if (Date.now() - rate.start > 10000) presenceRates.delete(ip);
+    presence.prune();
   }, 15000);
   return {
     server,

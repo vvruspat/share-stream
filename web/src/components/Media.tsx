@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowsPointingOutIcon, ComputerDesktopIcon, PlayIcon } from "@heroicons/react/24/outline";
-import { Button, Tooltip } from "./ui/index.js";
+import {
+  ArrowsPointingInIcon,
+  ArrowsPointingOutIcon,
+  ComputerDesktopIcon,
+  PlayIcon,
+} from "@heroicons/react/24/outline";
+import { Button, Tooltip, TooltipContainer } from "./ui/index.js";
 
 export function VoicePlayer({
   stream,
@@ -98,71 +103,75 @@ export function ScreenStage({
   stream,
   local,
   sharing,
-  remoteMic,
+  error,
   onError,
   children,
 }: {
   stream: MediaStream | null;
   local: MediaStream | null;
   sharing: boolean;
-  remoteMic: string;
+  error: string;
   onError: (error: unknown) => void;
   children: React.ReactNode;
 }) {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const changed = () => setFull(document.fullscreenElement === container);
+    document.addEventListener("fullscreenchange", changed);
+    return () => document.removeEventListener("fullscreenchange", changed);
+  }, [container]);
   const fullscreen = async () => {
-    const video = document.getElementById("remote-screen") as HTMLVideoElement & {
-      webkitEnterFullscreen?: () => void;
-    };
     try {
-      if (video.requestFullscreen) await video.requestFullscreen();
-      else video.webkitEnterFullscreen?.();
+      if (document.fullscreenElement === container) await document.exitFullscreen();
+      else if (container?.requestFullscreen) await container.requestFullscreen();
+      else
+        throw new Error(
+          "Fullscreen is unavailable in this browser. Try Chrome, Edge, Firefox or desktop Safari.",
+        );
     } catch (error) {
       onError(error);
     }
   };
   return (
-    <section className="panel stage" aria-label="Screen sharing">
-      <div className="stage-heading">
-        <span className="eyebrow">PARTNER’S SCREEN</span>
-        <div className="stage-tools">
-          <span id="remote-mic">{remoteMic}</span>
-          <Tooltip content="Open partner’s screen in full screen">
-            <Button
-              id="fullscreen"
-              variant="ghost"
-              disabled={!stream || !sharing}
-              onClick={() => {
-                void fullscreen();
-              }}
-              aria-label="Full screen"
-            >
-              <ArrowsPointingOutIcon />
-            </Button>
-          </Tooltip>
-        </div>
-      </div>
-      <div className="screen-area">
-        <Video
-          id="remote-screen"
-          stream={stream}
-          visible={sharing}
-          label="Partner’s shared screen"
-        />
-        <div id="placeholder" className="placeholder" hidden={!!stream && sharing}>
-          <div className="screen-symbol">
-            <ComputerDesktopIcon />
+    <section ref={setContainer} className="panel stage" aria-label="Screen sharing">
+      <TooltipContainer.Provider value={container}>
+        <div className={`screen-area ${stream && sharing ? "has-remote" : ""}`}>
+          <div id="error" className="error-banner" role="alert" hidden={!error}>
+            {error}
           </div>
-          <h2>A shared view of the mix</h2>
-          <p>
-            Bring your session into the room.
-            <br />
-            Your partner’s screen will appear here.
-          </p>
-          <span className="capture-note">Screen sharing starts only when you choose.</span>
+          <Video
+            id="remote-screen"
+            stream={stream}
+            visible={sharing}
+            label="Partner’s shared screen"
+          />
+          <div id="placeholder" className="placeholder" hidden={(!!stream && sharing) || !!local}>
+            <div className="screen-symbol">
+              <ComputerDesktopIcon />
+            </div>
+            <h2>A little closer to the mix.</h2>
+            <p>A participant’s shared screen will appear here.</p>
+          </div>
+          <Video id="local-screen" stream={local} label="Your screen preview" />
+          <div className="stream-toolbar" role="toolbar" aria-label="Call controls">
+            {children}
+            <span className="toolbar-divider" />
+            <Tooltip content={full ? "Exit full screen" : "Enter full screen"}>
+              <Button
+                id="fullscreen"
+                variant="ghost"
+                className="icon-button"
+                aria-label={full ? "Exit full screen" : "Enter full screen"}
+                aria-pressed={full}
+                onClick={() => void fullscreen()}
+              >
+                {full ? <ArrowsPointingInIcon /> : <ArrowsPointingOutIcon />}
+              </Button>
+            </Tooltip>
+          </div>
         </div>
-        <Video id="local-screen" stream={local} label="Your screen preview" />
-      </div>
-      {children}
+      </TooltipContainer.Provider>
     </section>
   );
 }
