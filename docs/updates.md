@@ -13,7 +13,7 @@ Windows hosts that do not scan per-user VST3 locations need that path added in t
 
 ## Updating
 
-0.3.1 predates the updater. Install 0.4.1 once. Afterwards the button at the bottom of either the plug-in or receiver checks GitHub Releases in the background, at most once per day per user. It uses only the latest published stable release from `vvruspat/share-stream`. No invitation, audio, room code or device information is sent to GitHub.
+0.3.1 predates the updater. Install the latest combined installer once. Afterwards the button at the bottom of either the plug-in or receiver checks GitHub Releases in the background, at most once per day per user. It uses only the latest published stable release from `vvruspat/share-stream`. No invitation, audio, room code or device information is sent to GitHub.
 
 When a newer version is available, choose **Download and install update**. The download, progress, checksum validation and installer launch happen inside Share Stream. You can check manually or disable daily checks in the same menu. Checks and downloads run on a low-priority background thread, independently from the audio callback. Multiple plug-in windows share one updater, with an interprocess lock for downloads/checks.
 
