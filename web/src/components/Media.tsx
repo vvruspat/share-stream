@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
@@ -6,57 +6,105 @@ import {
   PlayIcon,
 } from "@heroicons/react/24/outline";
 import { Button, Tooltip, TooltipContainer } from "./ui/index.js";
+import { VoicePlayback } from "../audio/VoicePlayback.js";
+import type { StereoPeaks } from "../audio/monitor.js";
 
 export function VoicePlayer({
   stream,
-  volume,
+  gainDb,
   output,
+  onPeaks,
   onError,
 }: {
   stream: MediaStream | null;
-  volume: number;
+  gainDb: number;
   output: string;
+  onPeaks: (peaks: StereoPeaks) => void;
   onError: (error: unknown) => void;
 }) {
   const ref = useRef<HTMLAudioElement | null>(null);
+  const sourceRef = useRef<HTMLAudioElement | null>(null);
+  const playback = useRef<VoicePlayback | null>(null);
+  const latestGain = useRef(gainDb);
+  latestGain.current = gainDb;
   const [needsPlay, setNeedsPlay] = useState(false);
+  const play = useCallback(async () => {
+    const player = playback.current;
+    const audio = ref.current;
+    const source = sourceRef.current;
+    if (!player || !audio || !source) return;
+    // Both calls must start inside the user gesture when autoplay is blocked.
+    try {
+      await Promise.all([player.context.resume(), source.play(), audio.play()]);
+    } catch (error) {
+      if (playback.current === player) throw error;
+      return;
+    }
+    if (playback.current === player) setNeedsPlay(player.context.state !== "running");
+  }, []);
   useEffect(() => {
     const audio = ref.current;
     if (!audio) return;
+    onPeaks([0, 0]);
+    setNeedsPlay(false);
+    if (!stream) return;
+    let player: VoicePlayback;
+    try {
+      player = new VoicePlayback(stream, latestGain.current);
+    } catch (error) {
+      onError(error);
+      return;
+    }
     let live = true;
-    audio.srcObject = stream;
-    if (stream)
-      void audio.play().then(
-        () => {
-          if (live) setNeedsPlay(false);
-        },
-        () => {
-          if (live) setNeedsPlay(true);
-        },
-      );
-    else setNeedsPlay(false);
+    playback.current = player;
+    const source = sourceRef.current;
+    // Chromium needs an attached media renderer to start decoding remote RTP.
+    // This element is always muted; only the processed stream can be heard.
+    if (source) {
+      source.muted = true;
+      source.srcObject = stream;
+    }
+    audio.volume = 1;
+    audio.srcObject = player.output;
+    const changed = () => {
+      if (live) setNeedsPlay(player.context.state !== "running" || audio.paused);
+    };
+    player.context.addEventListener("statechange", changed);
+    changed();
+    void play().catch(() => {
+      if (live) setNeedsPlay(true);
+    });
+    const timer = setInterval(() => onPeaks(player.peaks()), 50);
     return () => {
       live = false;
+      clearInterval(timer);
+      player.context.removeEventListener("statechange", changed);
+      if (playback.current === player) playback.current = null;
+      audio.pause();
       audio.srcObject = null;
+      if (source) {
+        source.pause();
+        source.srcObject = null;
+      }
+      player.close();
+      onPeaks([0, 0]);
     };
-  }, [stream]);
+  }, [stream, onPeaks, onError, play]);
   useEffect(() => {
-    if (ref.current) ref.current.volume = volume;
-  }, [volume]);
+    playback.current?.setGainDb(gainDb);
+  }, [gainDb]);
   useEffect(() => {
     if (ref.current?.setSinkId) void ref.current.setSinkId(output).catch(onError);
   }, [output, onError]);
   return (
     <>
+      <audio id="voice-source" ref={sourceRef} autoPlay muted />
       <audio id="voice" ref={ref} autoPlay />
       {needsPlay && (
         <Button
           id="play"
           onClick={() => {
-            void ref.current
-              ?.play()
-              .then(() => setNeedsPlay(false))
-              .catch(onError);
+            void play().catch(onError);
           }}
         >
           <PlayIcon />

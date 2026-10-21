@@ -9,7 +9,7 @@ import {
   Button,
   Disclosure,
   Select,
-  Slider,
+  MonitorSlider,
   Tooltip,
   TooltipProvider,
   type SelectOption,
@@ -20,10 +20,12 @@ import { participantToken, useParticipants } from "./call/useParticipants.js";
 import { loadDisplayName, saveDisplayName } from "./call/profile.js";
 import { parseInvitation, invitationLink, type Invitation } from "./call/invitation.js";
 import type { VoiceMode } from "./call/Call.js";
+import type { StereoPeaks } from "./audio/monitor.js";
 
 const supported =
   typeof navigator.mediaDevices?.getUserMedia === "function" &&
   typeof window.RTCPeerConnection === "function" &&
+  typeof window.AudioContext === "function" &&
   !!crypto.subtle;
 const outputSupported = "setSinkId" in HTMLMediaElement.prototype;
 function initialRoom(): Invitation | null {
@@ -49,7 +51,8 @@ export function App() {
   const [output, setOutput] = useState("");
   const [inputs, setInputs] = useState<SelectOption[]>(defaultDevice);
   const [outputs, setOutputs] = useState<SelectOption[]>(defaultDevice);
-  const [volume, setVolume] = useState(0.8);
+  const [volumeDb, setVolumeDb] = useState(0);
+  const [voicePeaks, setVoicePeaks] = useState<StereoPeaks>([0, 0]);
   const [name, setName] = useState(loadDisplayName);
   const roster = useParticipants(
     invite?.code || null,
@@ -238,6 +241,12 @@ export function App() {
             </Button>
           </Tooltip>
         </ScreenStage>
+        <MonitorSlider
+          id="volume"
+          value={volumeDb}
+          peaks={voicePeaks}
+          onValueChange={setVolumeDb}
+        />
         <Disclosure title="Voice settings" id="voice-settings">
           <div className="voice-settings-grid">
             <div>
@@ -279,12 +288,6 @@ export function App() {
                 onValueChange={setOutput}
               />
             </div>
-            <Slider
-              id="volume"
-              label="Partner’s voice volume"
-              value={volume}
-              onValueChange={setVolume}
-            />
             <div className="field">
               <label htmlFor="display-name">Your name</label>
               <input
@@ -357,7 +360,13 @@ export function App() {
             })}
           </ul>
         </Disclosure>
-        <VoicePlayer stream={voiceStream} volume={volume} output={output} onError={reportError} />
+        <VoicePlayer
+          stream={voiceStream}
+          gainDb={volumeDb}
+          output={output}
+          onPeaks={setVoicePeaks}
+          onError={reportError}
+        />
         <footer>
           <span>Music streams through the plugin</span>
           <span>

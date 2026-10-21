@@ -49,6 +49,21 @@ outside the disclosure, so collapsing it never interrupts audio. Screen video
 uses `object-fit: contain`; the local screen fills the stage when there is no
 remote screen, otherwise it becomes a small preview.
 
+The browser's always-visible Local monitor uses the native fader design: two
+L/R signal tracks, a separate narrow gain thumb, a dB gain readout and post-gain
+peak in dBFS. Both controls use -60..+6 dB in 0.1 dB steps, exact mute at -60 dB,
+double-click reset to 0 dB and a 20 ms linear gain ramp. Browser monitoring changes
+the partner's received voice; native monitoring changes the music output.
+
+Browser gain multiplies the decoded samples in Web Audio before they reach the
+output media element. That element stays at unity and retains `setSinkId` device
+selection and the explicit Play fallback. A separate muted media element keeps
+Chromium's remote RTP decoder running; it cannot bypass the gain. Both elements
+and the output graph are released on departure/replacement. Input tracks remain
+owned by WebRTC. The meter reads the same post-gain signal at 20 Hz and clears on
+mute, ended input, a suspended context or departure. The control remains mounted when voice
+settings are collapsed, and the selected gain survives call reconnection.
+
 ## Participant identity and presence
 
 A separate HTTPS `/api/presence` control endpoint combines native and browser

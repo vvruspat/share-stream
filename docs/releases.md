@@ -15,8 +15,8 @@ already merged into main.
 3. Tag that commit and push the tag:
 
    ```sh
-   git tag -a v0.4.3 -m 'Share Stream 0.4.3'
-   git push origin v0.4.3
+   git tag -a v0.4.4 -m 'Share Stream 0.4.4'
+   git push origin v0.4.4
    ```
 
 The **Release** workflow validates the tag against all versions and `origin/main`, tests web/browser/relay behavior, builds the backend and native binaries on macOS, Windows, Ubuntu and Fedora, and smoke-tests the Windows/Linux installers. macOS bundles and Setup are signed and notarized using the owner's existing Developer ID Application identity. Windows Setup is currently unsigned. Linux packages retain apt/rpm ownership and resolve native runtime dependencies.
