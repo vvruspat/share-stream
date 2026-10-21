@@ -13,5 +13,14 @@
   { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef&relay=relay.example.com&port=48100x", "invalid": true },
   { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef&relay=evil%40relay.example.com&port=48100", "invalid": true },
   { "input": "sharestream://13.140.153.191:48100/not-a-room", "invalid": true },
-  { "input": "javascript:alert(1)", "invalid": true }
+  { "input": "javascript:alert(1)", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room%3D0123456789abcdef0123456789abcdef%26relay%3Drelay.example.com%26port%3D48123%26join%3D1", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "relay.example.com", "port": 48123 } },
+  { "input": "https://stream.whitesquirrel.digital/#room%253D0123456789abcdef0123456789abcdef%2526relay%253Drelay.example.com%2526port%253D48123%2526join%253D1", "code": "0123456789abcdef0123456789abcdef", "relay": { "host": "relay.example.com", "port": 48123 } },
+  { "input": "https://stream.whitesquirrel.digital/#room%3D0123456789abcdef0123456789abcdef%26room%3Dffffffffffffffffffffffffffffffff", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef%26room%3Dffffffffffffffffffffffffffffffff", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room%3D0123456789abcdef0123456789abcdef%2526room%253Dffffffffffffffffffffffffffffffff", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room=0123456789abcdef0123456789abcdef&relay=relay%252eexample.com&port=48123", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room%3D0123456789abcdef0123456789abcdef%26relay%3Drelay%25252eexample.com%26port%3D48123", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room%3D0123456789abcdef0123456789abcdef%26relay%3Drelay.example.com%26port%3D48123%26join%3D1%ZZ", "invalid": true },
+  { "input": "https://stream.whitesquirrel.digital/#room%25253D0123456789abcdef0123456789abcdef%252526relay%25253Drelay.example.com%252526port%25253D48123%252526join%25253D1", "invalid": true }
 ]

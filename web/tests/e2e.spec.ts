@@ -479,63 +479,73 @@ test("congestion lowers voice bitrate without stopping speech, then screen budge
   }
 });
 
-test("plugin presence merges with its browser identity and keeps participants on media failure", async ({
-  browser,
-  baseURL,
-}) => {
-  const context = await browser.newContext({ viewport: { width: 320, height: 780 } });
-  await synthetic(context);
-  const page = await context.newPage();
-  const code = randomBytes(16).toString("hex"),
-    token = randomBytes(16).toString("hex");
-  const { createHash } = await import("node:crypto");
-  const room = createHash("sha256").update(`ShareStream-call-room-v1:${code}`).digest("hex");
-  const identity = createHash("sha256").update(token).digest("hex").slice(0, 32);
-  try {
-    const seeded = await page.request.post(`${baseURL}/api/presence`, {
-      data: { room, token, source: "plugin", connected: true, music: "sending" },
-    });
-    expect(seeded.ok()).toBe(true);
-    await page.goto(`${baseURL}/#room=${code}&join=1&participant=${token}`);
-    await expect(page.locator("#participants > button")).toHaveText("Participants · 1");
-    await expect(page.locator("#participants > button")).toHaveAttribute("aria-expanded", "false");
-    await page.locator("#participants > button").click();
-    await expect(page.locator(".participant")).toHaveCount(1);
-    await expect(page.locator(".participant")).toHaveAttribute("data-participant-id", identity);
-    await expect(page.locator(".participant")).toContainText("Sending music");
-    expect(await page.evaluate(() => location.hash.includes("participant"))).toBe(false);
-    await page.locator("#voice-settings > button").click();
-    await page
-      .locator("#display-name")
-      .fill("A very long participant name without spaces abcdefghijklmnopq");
-    await expect(page.locator(".participant-name")).toContainText("A very long participant");
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-      true,
-    );
-    await page.evaluate(() => {
-      navigator.mediaDevices.getUserMedia = async () => {
-        throw new DOMException("Denied", "NotAllowedError");
-      };
-    });
-    await page.locator("#mic").click();
-    await expect(page.locator("#error")).toContainText("Permission was not granted");
-    await expect(page.locator("#mic")).toHaveAttribute("aria-pressed", "false");
-    await expect(page.locator(".participant")).toHaveCount(1);
-    await expect(page.locator(".participant")).toContainText("Sending music");
-    await page.locator("#participants > button").click();
-    await page.locator("#participants > button").click();
-    await expect(page.locator(".participant-name")).toContainText("A very long participant");
-    await page.locator("#leave").click();
-    const remaining = await page.request.post(`${baseURL}/api/presence`, {
-      data: { room, token, source: "plugin", connected: true, music: "listening" },
-    });
-    const participants = (await remaining.json()).participants;
-    expect(participants).toHaveLength(1);
-    expect(participants[0].music).toBe("listening");
-  } finally {
-    await context.close();
-  }
-});
+for (const layers of [0, 1, 2]) {
+  test(`plugin presence merges after ${layers} fragment escapes and survives media failure`, async ({
+    browser,
+    baseURL,
+  }) => {
+    const context = await browser.newContext({ viewport: { width: 320, height: 780 } });
+    await synthetic(context);
+    const page = await context.newPage();
+    const code = randomBytes(16).toString("hex"),
+      token = randomBytes(16).toString("hex");
+    const { createHash } = await import("node:crypto");
+    const room = createHash("sha256").update(`ShareStream-call-room-v1:${code}`).digest("hex");
+    const identity = createHash("sha256").update(token).digest("hex").slice(0, 32);
+    try {
+      const seeded = await page.request.post(`${baseURL}/api/presence`, {
+        data: { room, token, source: "plugin", connected: true, music: "sending" },
+      });
+      expect(seeded.ok()).toBe(true);
+      let fragment = `room=${code}&relay=stream.whitesquirrel.digital&port=48100&join=1&participant=${token}`;
+      for (let i = 0; i < layers; i++) fragment = encodeURIComponent(fragment);
+      await page.goto(`${baseURL}/#${fragment}`);
+      await expect(page.locator("#join")).toHaveCount(0);
+      await expect(page.locator("#leave")).toBeEnabled();
+      expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+      await expect(page.locator("#participants > button")).toHaveText("Participants · 1");
+      await expect(page.locator("#participants > button")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      await page.locator("#participants > button").click();
+      await expect(page.locator(".participant")).toHaveCount(1);
+      await expect(page.locator(".participant")).toHaveAttribute("data-participant-id", identity);
+      await expect(page.locator(".participant")).toContainText("Sending music");
+      expect(await page.evaluate(() => location.hash.includes("participant"))).toBe(false);
+      await page.locator("#voice-settings > button").click();
+      await page
+        .locator("#display-name")
+        .fill("A very long participant name without spaces abcdefghijklmnopq");
+      await expect(page.locator(".participant-name")).toContainText("A very long participant");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.evaluate(() => {
+        navigator.mediaDevices.getUserMedia = async () => {
+          throw new DOMException("Denied", "NotAllowedError");
+        };
+      });
+      await page.locator("#mic").click();
+      await expect(page.locator("#error")).toContainText("Permission was not granted");
+      await expect(page.locator("#mic")).toHaveAttribute("aria-pressed", "false");
+      await expect(page.locator(".participant")).toHaveCount(1);
+      await expect(page.locator(".participant")).toContainText("Sending music");
+      await page.locator("#participants > button").click();
+      await page.locator("#participants > button").click();
+      await expect(page.locator(".participant-name")).toContainText("A very long participant");
+      await page.locator("#leave").click();
+      const remaining = await page.request.post(`${baseURL}/api/presence`, {
+        data: { room, token, source: "plugin", connected: true, music: "listening" },
+      });
+      const participants = (await remaining.json()).participants;
+      expect(participants).toHaveLength(1);
+      expect(participants[0].music).toBe("listening");
+    } finally {
+      await context.close();
+    }
+  });
+}
 
 test("overlay toolbar uses real fullscreen and handles cancelled and externally stopped capture", async ({
   browser,

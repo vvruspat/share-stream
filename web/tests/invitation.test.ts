@@ -4,6 +4,7 @@ import { test } from "vite-plus/test";
 import {
   defaultRelay,
   invitationLink,
+  invitationParameters,
   parseInvitation,
   type RelayAddress,
 } from "../src/call/invitation.js";
@@ -56,4 +57,22 @@ test("new invitations use the relay domain and migrate the former IP without cha
   const old = invitationLink({ code, relay: { host: "13.140.153.191", port: 48100 } });
   assert.equal(parseInvitation(old).relay?.host, defaultRelay.host);
   assert.equal(parseInvitation(old).code, code);
+});
+test("escaped native launches retain auto-join and the private participant binding", () => {
+  const code = "0123456789abcdef0123456789abcdef";
+  const token = "fedcba9876543210fedcba9876543210";
+  let fragment = `room=${code}&relay=relay.example.com&port=48123&join=1&participant=${token}`;
+  for (let layers = 0; layers <= 2; layers++) {
+    const invite = parseInvitation(`https://stream.whitesquirrel.digital/#${fragment}`);
+    assert.deepEqual(invite, {
+      code,
+      autoJoin: true,
+      relay: { host: "relay.example.com", port: 48123 },
+    });
+    assert.equal(invitationParameters(`#${fragment}`).get("participant"), token);
+    const shared = invitationLink(invite);
+    assert.ok(shared.includes("#room=") && shared.includes("&join=1"));
+    assert.ok(!shared.includes("participant"), "shared invites omit the private binding");
+    fragment = encodeURIComponent(fragment);
+  }
 });

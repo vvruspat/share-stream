@@ -23,7 +23,20 @@ std::optional<Invitation> parseInvitation(const std::string& value) {
         return result;
     }
     if (!text.startsWithIgnoreCase("https://stream.whitesquirrel.digital/#")) return {};
-    const auto fragment = text.fromFirstOccurrenceOf("#", false, false);
+    auto fragment = text.fromFirstOccurrenceOf("#", false, false);
+    // Older native clients escaped the whole fragment when opening a browser.
+    // Unwrap only that form; never turn an encoded value into field separators.
+    for (int layer = 0; layer < 2 && !fragment.containsChar('='); ++layer) {
+        for (int i = 0; i < fragment.length(); ++i) {
+            if (fragment[i] != '%') continue;
+            if (i + 2 >= fragment.length() || juce::CharacterFunctions::getHexDigitValue(fragment[i + 1]) < 0
+                || juce::CharacterFunctions::getHexDigitValue(fragment[i + 2]) < 0) return {};
+            i += 2;
+        }
+        const auto decoded = juce::URL::removeEscapeChars(fragment);
+        if (decoded == fragment) break;
+        fragment = decoded;
+    }
     juce::StringPairArray parameters;
     for (const auto& field : juce::StringArray::fromTokens(fragment, "&", "")) {
         const auto name = juce::URL::removeEscapeChars(field.upToFirstOccurrenceOf("=", false, false));

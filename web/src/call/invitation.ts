@@ -9,6 +9,20 @@ export interface Invitation {
 }
 export const defaultRelay: RelayAddress = { host: "stream.whitesquirrel.digital", port: 48100 };
 const validCode = /^[a-f\d]{32}$/i;
+export function invitationParameters(hash: string): URLSearchParams {
+  let fragment = hash.startsWith("#") ? hash.slice(1) : hash;
+  // Older JUCE clients escaped the entire fragment on browser launch. Decode
+  // at most two wrappers, stopping before decoding individual field values.
+  for (let layer = 0; layer < 2 && !fragment.includes("="); layer++) {
+    const decoded = decodeURIComponent(fragment);
+    if (decoded === fragment) break;
+    fragment = decoded;
+  }
+  const parameters = new URLSearchParams(fragment);
+  if ([...parameters.keys()].some((key) => parameters.getAll(key).length !== 1))
+    throw new Error("Duplicate invite parameter");
+  return parameters;
+}
 function parseRelay(host: string, port: string): RelayAddress {
   if (
     !/^[a-z\d.-]{1,253}$/i.test(host) ||
@@ -39,9 +53,7 @@ export function parseInvitation(value: string): Invitation {
       };
     }
     if (url.protocol === "https:" || url.protocol === "http:") {
-      const parameters = new URLSearchParams(url.hash.slice(1));
-      if ([...parameters.keys()].some((key) => parameters.getAll(key).length !== 1))
-        throw new Error("Duplicate invite parameter");
+      const parameters = invitationParameters(url.hash);
       const code = parameters.get("room");
       if (code && validCode.test(code))
         return {
