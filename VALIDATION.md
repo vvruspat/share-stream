@@ -1,5 +1,23 @@
 # Share Stream — validation
 
+## 0.4.5 chat participant slots (2026-10-21)
+
+- An isolated room on production v0.4.4 reproduced the reported failure: two
+  browser tabs launched with one native participant's credential consumed both
+  signaling slots, and the native listener's browser received Session ended.
+- The regression seeds both native sending/listening presence records, opens
+  the sender's chat twice, and verifies the listener can join. The old tab stops,
+  both participant records remain, capture stays opt-in, decoded voice arrives
+  in both directions and screen frames arrive. Another plain-invite tab restores
+  the saved room identity, replaces the previous transport and passes voice again.
+- Server tests cover replacement before and after a partner joins, correct peer
+  departure/join events, old socket cleanup, room isolation, rejection of a third
+  person and refusal to replace a public signaling ID with a wrong credential.
+  Old pages receive a reload request before occupying a slot. Fresh signaling
+  IDs preserve existing authenticated replay protection.
+- Local web lint/typecheck, production build, 23 unit/integration tests, all 14
+  browser scenarios and 18 Python tests passed.
+
 ## 0.4.4 local monitor controls (2026-10-21)
 
 - Native UI tests drive the real fader, read actual stereo processor samples and

@@ -1,6 +1,6 @@
 import { test, onTestFinished } from "vite-plus/test";
 import type { AddressInfo } from "node:net";
-import { WEB_VERSION } from "../shared/protocol.js";
+import { WEB_VERSION, SIGNAL_VERSION } from "../shared/protocol.js";
 import type { ServerFrame } from "../shared/protocol.js";
 import assert from "node:assert/strict";
 import { once } from "node:events";
@@ -30,7 +30,7 @@ async function fixture() {
     await rm(clientDir, { recursive: true, force: true });
   });
   const url = `ws://127.0.0.1:${(service.server.address() as AddressInfo).port}/signal`;
-  async function peer(peerId: string, roomId = room(1), resume = id(99)) {
+  async function peer(peerId: string, roomId = room(1), resume = id(1000 + parseInt(peerId, 16))) {
     const ws = new WebSocket(url, { origin });
     const messages: ServerFrame[] = [];
     let waiter: (() => void) | undefined;
@@ -48,7 +48,9 @@ async function fixture() {
       waiter?.();
     });
     await once(ws, "open");
-    ws.send(JSON.stringify({ type: "join", id: peerId, resume, room: roomId }));
+    ws.send(
+      JSON.stringify({ type: "join", version: SIGNAL_VERSION, id: peerId, resume, room: roomId }),
+    );
     const next = async <T extends ServerFrame["type"]>(
       type: T,
     ): Promise<Extract<ServerFrame, { type: T }>> => {
@@ -138,6 +140,34 @@ test("third peer rejected; resume replaces only the authenticated old session", 
   assert.equal((await once(intruder.ws, "close"))[0], 1008);
   assert.equal(f.rooms.get(room(1))!.size, 2);
 });
+test("a participant reopening chat replaces its old ID and leaves the partner's slot available", async () => {
+  const f = await fixture(),
+    credential = id(201),
+    old = await f.peer(id(1), room(1), credential);
+  await old.next("welcome");
+  const closed = once(old.ws, "close"),
+    replacement = await f.peer(id(2), room(1), credential);
+  assert.deepEqual((await replacement.next("welcome")).peers, []);
+  assert.equal((await closed)[0], 4001);
+  assert.deepEqual([...f.rooms.get(room(1))!.keys()], [id(2)]);
+  const partner = await f.peer(id(3));
+  assert.deepEqual((await partner.next("welcome")).peers, [id(2)]);
+  await replacement.next("peer");
+  const replaced = once(replacement.ws, "close"),
+    again = await f.peer(id(4), room(1), credential);
+  assert.deepEqual((await again.next("welcome")).peers, [id(3)]);
+  assert.equal((await replaced)[0], 4001);
+  assert.equal((await partner.next("left")).id, id(2));
+  assert.equal((await partner.next("peer")).id, id(4));
+  assert.deepEqual([...f.rooms.get(room(1))!.keys()], [id(3), id(4)]);
+  const third = await f.peer(id(5));
+  assert.match((await third.next("error")).message, /two people/);
+  const forged = await f.peer(id(4), room(1), id(202));
+  assert.equal((await once(forged.ws, "close"))[0], 1008);
+  const separateRoom = await f.peer(id(6), room(2), credential);
+  assert.deepEqual((await separateRoom.next("welcome")).peers, []);
+  assert.equal(f.rooms.get(room(1))!.size, 2);
+});
 test("wrong origins, malformed joins and signals are rejected", async () => {
   const f = await fixture();
   const bad = new WebSocket(f.url, { origin: "https://evil.invalid" });
@@ -150,6 +180,17 @@ test("wrong origins, malformed joins and signals are rejected", async () => {
   await a.next("welcome");
   a.ws.send(JSON.stringify({ type: "signal", channel: "music", to: id(2) }));
   assert.equal((await once(a.ws, "close"))[0], 1008);
+});
+test("old pages must reload before reserving a participant slot", async () => {
+  const f = await fixture(),
+    ws = new WebSocket(f.url, { origin });
+  await once(ws, "open");
+  const message = once(ws, "message"),
+    closed = once(ws, "close");
+  ws.send(JSON.stringify({ type: "join", id: id(1), resume: id(11), room: room(1) }));
+  assert.match(JSON.parse(String((await message)[0])).message, /Reload this page/);
+  assert.equal((await closed)[0], 1008);
+  assert.equal(f.rooms.size, 0);
 });
 test("TURN credentials are expiring HMACs and refreshed through joined websocket", async () => {
   const now = 1800000000000,

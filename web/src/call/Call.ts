@@ -1,4 +1,5 @@
 import { randomId, roomKeys, seal, unseal, type RoomKeys } from "./crypto.js";
+import { SIGNAL_VERSION } from "../../shared/protocol.js";
 import type {
   Channel,
   MediaChannel,
@@ -84,11 +85,12 @@ export class Call extends EventTarget {
   }
   constructor({
     url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/signal`,
+    resume = randomId(),
   } = {}) {
     super();
     this.url = url;
     this.id = randomId();
-    this.resume = randomId();
+    this.resume = resume;
     this.active = false;
     this.pcs = new Map();
     this.seen = new Map();
@@ -151,7 +153,13 @@ export class Call extends EventTarget {
     this.ws = ws;
     ws.onopen = () =>
       ws.send(
-        JSON.stringify({ type: "join", id: this.id, resume: this.resume, room: this.keys.room }),
+        JSON.stringify({
+          type: "join",
+          version: SIGNAL_VERSION,
+          id: this.id,
+          resume: this.resume,
+          room: this.keys.room,
+        }),
       );
     ws.onmessage = (event) => {
       this.receiveChain = this.receiveChain

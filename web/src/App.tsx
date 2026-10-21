@@ -42,9 +42,10 @@ const modes: SelectOption[] = [
 ];
 
 export function App() {
-  const { call, state, remote, voiceStream, screenStream, localScreen, error, run } = useCall();
   const [invite] = useState(initialRoom);
   const [token] = useState(() => participantToken(invite?.code || null));
+  const { call, state, remote, voiceStream, screenStream, localScreen, error, run } =
+    useCall(token);
   const [joining, setJoining] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [input, setInput] = useState("");
@@ -74,7 +75,7 @@ export function App() {
   );
 
   useEffect(() => {
-    // Keep the private browser/plugin binding in this tab's session storage,
+    // Keep the private browser/plugin binding in local browser storage,
     // never in a shareable invitation or an HTTP request URL.
     if (invite) history.replaceState(null, "", invitationLink(invite, location.origin, false));
   }, [invite]);

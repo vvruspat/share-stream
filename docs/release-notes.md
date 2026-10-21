@@ -1,12 +1,11 @@
-Share Stream 0.4.4 brings the native Local monitor fader to browser voice playback.
+Share Stream 0.4.5 fixes chat rooms filling up when one participant opens another browser tab.
 
-- Browser voice now uses a real Web Audio gain stage before playback. Gain changes affect the output samples, including exact mute, and use the same 20 ms smoothing as the native music monitor.
-- Both faders use **-60 to +6 dB**, **0.1 dB steps**, **Mute** at the minimum and **double-click to return to 0 dB**. The browser now matches the native two-track L/R meter, narrow thumb and peak readout. Meter bars show the actual post-gain signal independently of the gain thumb.
-- Browser Local monitor remains visible outside the collapsed voice settings. It changes the partner’s received voice; the native Local monitor changes the music output. Local gain does not change what the partner receives.
-- The selected voice output, explicit Play button for blocked autoplay, mute and gain survive playback recovery and track replacement. Leaving stops the playback graph and clears its meters. Opening voice still does not capture microphone or screen automatically.
-- Shared gain fixtures and tests exercise native fader actions against real stereo samples; browser tests measure the processed PCM arriving at the output rather than only checking an HTML volume property.
+- Opening **Voice & screen** again replaces your previous browser connection instead of taking the partner's place. The old tab stops its microphone and screen capture and does not reconnect automatically.
+- Native music and browser chat use the same private participant credential. The browser remembers it per room, so reopening an ordinary room link in the same browser restores that identity. A fresh link from your own plugin or standalone takes precedence over the saved identity.
+- Two people can each stream/listen to music and join voice and screen in the same room. The two-person limit still rejects a third person. Shared invitations never include your private participant credential.
+- Each new browser page still gets a fresh public signaling ID, preserving encryption replay protection across replacement. Regression tests cover two native presence records, repeated chat launches, received voice, decoded screen frames, and rejection of unauthenticated replacement.
 
-All v0.4.3 chat invitation compatibility and earlier streaming, participant and quality controls are retained.
+All v0.4.4 monitor controls, invitation compatibility and earlier streaming, participant and quality controls are retained. Refresh the chat on both sides once after deployment so older tabs use the new participant binding.
 
 | Platform | Combined installer |
 | --- | --- |

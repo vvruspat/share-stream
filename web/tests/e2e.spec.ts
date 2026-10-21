@@ -724,6 +724,81 @@ test("congestion lowers voice bitrate without stopping speech, then screen budge
   }
 });
 
+test("native sender and listener join chat after the sender reopens its browser tab", async ({
+  browser,
+  baseURL,
+}) => {
+  const a = await browser.newContext(),
+    b = await browser.newContext();
+  await synthetic(a, 0.125);
+  await synthetic(b, 0.125);
+  const old = await a.newPage(),
+    sender = await a.newPage(),
+    listener = await b.newPage(),
+    code = randomBytes(16).toString("hex"),
+    senderToken = randomBytes(16).toString("hex"),
+    listenerToken = randomBytes(16).toString("hex");
+  const { createHash } = await import("node:crypto");
+  const room = createHash("sha256").update(`ShareStream-call-room-v1:${code}`).digest("hex");
+  const launch = (token: string) => `${baseURL}/#room=${code}&join=1&participant=${token}`;
+  try {
+    for (const [token, music] of [
+      [senderToken, "sending"],
+      [listenerToken, "listening"],
+    ]) {
+      const response = await sender.request.post(`${baseURL}/api/presence`, {
+        data: { room, token, source: "plugin", connected: true, music },
+      });
+      expect(response.ok()).toBe(true);
+    }
+    await old.addInitScript(({ key, token }) => localStorage.setItem(key, token), {
+      key: `sharestream:participant:${code}`,
+      token: randomBytes(16).toString("hex"),
+    });
+    await old.goto(launch(senderToken));
+    await expect(old.locator("#leave")).toBeVisible();
+    expect(
+      await old.evaluate((key) => localStorage.getItem(key), `sharestream:participant:${code}`),
+    ).toBe(senderToken);
+    await sender.goto(launch(senderToken));
+    await listener.goto(launch(listenerToken));
+    await expect(sender.locator("#status")).toContainText("Connected", { timeout: 20000 });
+    await expect(listener.locator("#status")).toContainText("Connected", { timeout: 20000 });
+    await expect(old.locator("#status")).toHaveText("Session opened in another tab");
+    for (const page of [sender, listener]) {
+      await expect(page.locator("#error")).toBeHidden();
+      await expect(page.locator("#participants > button")).toHaveText("Participants · 2");
+      expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    }
+    await old.close();
+    await sender.locator("#mic").click();
+    await listener.locator("#mic").click();
+    await sender.locator("#share").click();
+    await expect.poll(() => voiceRms(listener)).toBeGreaterThan(0.02);
+    await expect.poll(() => voiceRms(sender)).toBeGreaterThan(0.02);
+    await expect.poll(() => stats(listener, "video", "framesDecoded")).toBeGreaterThan(0);
+
+    // A fresh plain invite in another tab must recover this installation's room
+    // binding even after the private launch fragment has been removed.
+    const replacement = await a.newPage();
+    await replacement.goto(`${baseURL}/#room=${code}&join=1`);
+    await expect(replacement.locator("#status")).toContainText("Connected", { timeout: 20000 });
+    await expect(sender.locator("#status")).toHaveText("Session opened in another tab");
+    await expect(replacement.locator("#participants > button")).toHaveText("Participants · 2");
+    await replacement.locator("#mic").click();
+    await expect.poll(() => voiceRms(listener)).toBeGreaterThan(0.02);
+    await expect.poll(() => voiceRms(replacement)).toBeGreaterThan(0.02);
+    await expect
+      .poll(() =>
+        sender.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")),
+      )
+      .toBe(true);
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});
+
 for (const layers of [0, 1, 2]) {
   test(`plugin presence merges after ${layers} fragment escapes and survives media failure`, async ({
     browser,

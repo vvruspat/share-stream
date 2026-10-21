@@ -12,8 +12,10 @@
 
 Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
 Default relay: **stream.whitesquirrel.digital:48100 UDP**.
-Version **0.4.4** gives browser voice playback the same **Local monitor** fader as
-the native client, with sample-level gain, stereo meters, mute and a 0 dB reset.
+Version **0.4.5** keeps one chat slot per participant when reopening a browser tab,
+so the music listener can also join voice and screen. Browser voice playback uses
+the native **Local monitor** fader style, with sample-level gain, stereo meters,
+mute and a 0 dB reset.
 It includes native **Voice & screen** links compatible with escaped invitations,
 a compact session interface, stereo monitoring meters,
 shared participant presence and remembered browser names. It includes live streaming

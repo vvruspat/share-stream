@@ -24,7 +24,7 @@ browser once with `npx playwright install chromium`.
 - `src/components/ui/`: reusable Radix controls and design tokens.
 - `src/App.tsx`, `src/components/Media.tsx`: room, controls and media playback.
 - `src/call/`: typed signaling, encryption, media lifecycle and React subscription.
-- `shared/protocol.ts`: client/server wire types, unchanged v1 wire format.
+- `shared/protocol.ts`: client/server wire types and versioned chat admission.
 - `server/`: room routing, TURN credentials and static serving.
 - `tests/`: Vite+ unit/integration tests and Playwright browser tests.
 
@@ -46,6 +46,15 @@ The native `Voice & screen` button also adds one-time `join=1` intent; the page 
 signaling automatically and removes that flag from history. A plain page/room URL
 still needs Join. Neither path opens capture. Both invitation parsers share fixture
 coverage in `Tests/Invitations.json`; legacy native links and raw tokens remain valid.
+
+The private participant binding from a native launch is remembered per room in
+localStorage and is also the signaling resume credential. Reopening chat in the
+same browser replaces the old tab's transport, closes its capture and keeps the
+other participant's slot free. Public signaling IDs stay unique to each page;
+the private credential is never returned to peers or included in shared invites.
+Old pages receive an explicit reload request before joining, so their previous
+per-page credentials cannot reserve extra slots after a deployment. Encrypted
+signaling envelopes and native music transport remain unchanged.
 
 Native music, browser screen and browser voice remain independent transports.
 The screen capture never includes audio. Captures require explicit actions;

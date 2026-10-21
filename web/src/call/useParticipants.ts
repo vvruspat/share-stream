@@ -6,18 +6,31 @@ import type { Participant, PresenceUpdate } from "../../shared/presence.js";
 export function participantToken(room: string | null): string {
   const supplied = room ? invitationParameters(location.hash).get("participant") : null;
   const key = `sharestream:participant:${room}`;
-  let saved: string | null = null;
+  let saved: string | null = null,
+    previous: string | null = null;
   try {
-    saved = sessionStorage.getItem(key);
+    saved = localStorage.getItem(key);
   } catch {
     /* Private browsing. */
+  }
+  try {
+    previous = sessionStorage.getItem(key);
+  } catch {
+    /* Fall back to this page's identity if both stores are unavailable. */
   }
   const token =
     supplied && /^[a-f0-9]{32}$/.test(supplied)
       ? supplied
       : saved && /^[a-f0-9]{32}$/.test(saved)
         ? saved
-        : randomId();
+        : previous && /^[a-f0-9]{32}$/.test(previous)
+          ? previous
+          : randomId();
+  try {
+    localStorage.setItem(key, token);
+  } catch {
+    /* The tab's session store can still preserve the binding on reload. */
+  }
   try {
     sessionStorage.setItem(key, token);
   } catch {
