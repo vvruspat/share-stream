@@ -12,8 +12,8 @@ export function explainError(error: unknown): string {
   return error instanceof Error ? names[error.name] || error.message : String(error);
 }
 
-export function useCall() {
-  const [call] = useState(() => new Call());
+export function useCall(token: string) {
+  const [call] = useState(() => new Call({ resume: token }));
   const [state, setState] = useState(() => call.snapshot);
   const [remote, setRemote] = useState<Partial<RemoteMedia>>({ mic: false, screen: false });
   const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);

@@ -18,6 +18,7 @@ export interface IncomingSignal extends EncryptedSignal {
 }
 export interface JoinFrame {
   type: "join";
+  version: typeof SIGNAL_VERSION;
   room: string;
   id: string;
   resume: string;
@@ -42,4 +43,6 @@ export type SignalPayload =
   | RemoteMedia
   | { description: RTCSessionDescriptionInit }
   | { candidate: RTCIceCandidateInit };
-export const WEB_VERSION = "0.4.4";
+export const WEB_VERSION = "0.4.5";
+// v2 binds resume credentials to participants rather than individual pages.
+export const SIGNAL_VERSION = 2;

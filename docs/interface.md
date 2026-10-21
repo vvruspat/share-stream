@@ -77,8 +77,20 @@ A per-installation random key is stored alongside native application settings
 in `Share Stream/participant.key`. It derives a different private credential for
 each room. Native instances in the same installation/room and a browser opened
 from Voice & screen share this credential. Copy invite omits it. The browser
-removes the binding from the fragment immediately and retains it in tab session
-storage. Copying a DAW project to another computer does not copy a person's ID.
+removes the binding from the fragment immediately and retains it per room in
+localStorage, with tab session storage as a fallback and migration source. A
+fresh native launch takes precedence over a saved browser identity. Copying a
+DAW project to another computer does not copy a person's ID.
+
+Signaling authenticates with the same private credential. Opening another tab
+replaces that participant's old browser transport and stops its capture, instead
+of consuming a second person's slot. Each transport still gets a fresh public
+signaling ID and encryption sequence, so the partner can accept its new messages
+without weakening replay checks. The replaced tab does not auto-reconnect. Native
+presence does not occupy a browser signaling slot, and two distinct people can
+each use music, voice and screen in the same room. A third person is still rejected.
+The versioned chat handshake asks older pages to reload before reserving a slot;
+old per-page sessions therefore cannot keep blocking the partner after deployment.
 
 The public participant ID is a hash of that credential. Names do not merge
 participants. A default name is derived from the ID; a person may set their name

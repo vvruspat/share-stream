@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { PresenceRegistry } from "./presence.js";
 import {
   WEB_VERSION,
+  SIGNAL_VERSION,
   type IceServer,
   type JoinFrame,
   type EncryptedSignal,
@@ -39,6 +40,7 @@ function isJoin(m: unknown): m is JoinFrame {
   return (
     record(m) &&
     m.type === "join" &&
+    m.version === SIGNAL_VERSION &&
     typeof m.room === "string" &&
     /^[a-f0-9]{64}$/.test(m.room) &&
     typeof m.id === "string" &&
@@ -234,6 +236,14 @@ export function createService({
           ).toString("utf8"),
         );
         if (!room) {
+          if (record(m) && m.type === "join" && m.version !== SIGNAL_VERSION) {
+            send(ws, {
+              type: "error",
+              message: "Chat has been updated. Reload this page to reconnect.",
+            });
+            ws.close(1008, "Chat update required");
+            return;
+          }
           if (!isJoin(m)) throw new Error("Invalid join");
           let members = rooms.get(m.room);
           if (!members && rooms.size >= maxRooms) {
@@ -241,9 +251,14 @@ export function createService({
             ws.close(1013);
             return;
           }
-          const previous = members?.get(m.id);
-          if (previous && !timingSafeEqual(Buffer.from(previous.resume), Buffer.from(m.resume)))
+          const sameCredential = (entry: Member) =>
+            timingSafeEqual(Buffer.from(entry.resume), Buffer.from(m.resume));
+          if (members?.has(m.id) && !sameCredential(members.get(m.id)!))
             throw new Error("Invalid session");
+          // A fresh tab has a fresh signaling ID (and encryption sequence), but
+          // authenticates with the same private participant credential. Replace
+          // its old transport rather than consuming the partner's room slot.
+          const previous = members && [...members].find(([, entry]) => sameCredential(entry));
           if (!previous && members && members.size >= 2) {
             send(ws, { type: "error", message: "This room already has two people." });
             ws.close(4003);
@@ -256,9 +271,11 @@ export function createService({
             rooms.set(room, members);
           }
           if (previous) {
+            const [previousId, entry] = previous;
             for (const [other, entry] of members)
-              if (other !== id) send(entry.ws, { type: "left", id });
-            previous.ws.close(4001, "Session resumed");
+              if (other !== previousId) send(entry.ws, { type: "left", id: previousId });
+            members.delete(previousId);
+            entry.ws.close(4001, "Session resumed");
           }
           members.set(id, { ws, resume: m.resume });
           clearTimeout(deadline);
