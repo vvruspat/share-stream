@@ -1,6 +1,6 @@
 services:
   web:
-    image: share-stream-call:0.4.2
+    image: share-stream-call:0.4.3
     build:
       context: /opt/share-stream/collaboration
     restart: unless-stopped
