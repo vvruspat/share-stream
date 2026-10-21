@@ -62,6 +62,46 @@ static void setGain(ShareStreamProcessor& processor,const char* id,float db) {
     auto* value=processor.parameters.getParameter(id);
     value->setValueNotifyingHost(value->convertTo0to1(db));
 }
+static juce::Component* control(juce::Component& parent,const juce::String& id) {
+    if(parent.getComponentID()==id)return &parent;
+    for(auto* child:parent.getChildren())if(auto* found=control(*child,id))return found;
+    return nullptr;
+}
+static void monitorControls() {
+    ShareStreamProcessor processor;processor.prepareToPlay(48000,128);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    auto* slider=dynamic_cast<juce::Slider*>(control(*editor,"local-monitor"));
+    auto* send=dynamic_cast<juce::TextButton*>(control(*editor,"send-role"));
+    auto* listen=dynamic_cast<juce::TextButton*>(control(*editor,"listen-role"));
+    check(slider && send && listen,"native local-monitor and role controls exist");
+    const auto fixture=juce::JSON::parse(juce::File(SHARE_STREAM_MONITOR_FIXTURES));
+    check(fixture.isObject() && fixture["cases"].isArray(),"shared native/browser monitoring fixture loads");
+    check(slider->getMinimum()==static_cast<double>(fixture["min"]) && slider->getMaximum()==static_cast<double>(fixture["max"])
+        && std::abs(slider->getInterval()-static_cast<double>(fixture["step"]))<1e-6
+        && std::abs(slider->getValue()-static_cast<double>(fixture["default"]))<1e-4,"native and browser use the same monitor range, step and unity default");
+    juce::AudioBuffer<float> audio(2,128);juce::MidiBuffer midi;
+    for(const auto& test:*fixture["cases"].getArray()) {
+        slider->setValue(static_cast<double>(test["db"]),juce::sendNotificationSync);
+        for(int block=0;block<20;++block) {
+            for(int n=0;n<128;++n){audio.setSample(0,n,.125f);audio.setSample(1,n,-.25f);}
+            processor.processBlock(audio,midi);
+        }
+        const auto expected=static_cast<float>(test["gain"]);
+        check(std::abs(audio.getSample(0,127)-.125f*expected)<1e-6f && std::abs(audio.getSample(1,127)+.25f*expected)<1e-6f,"native fader changes actual stereo output samples, including mute and +6 dB");
+        const auto peaks=processor.monitorPeaks();
+        check(std::abs(peaks[0]-.125f*expected)<1e-6f && std::abs(peaks[1]-.25f*expected)<1e-6f,"native meter follows the actual post-fader stereo samples");
+    }
+    slider->setValue(-6,juce::sendNotificationSync);
+    listen->onClick();check(std::abs(slider->getValue())<.001,"Listen has an independent unity default");
+    slider->setValue(-20,juce::sendNotificationSync);
+    send->onClick();check(std::abs(slider->getValue()+6)<.001,"Send restores its own fader value");
+    listen->onClick();check(std::abs(slider->getValue()+20)<.001,"Listen restores its own fader value");
+    const auto now=juce::Time::getCurrentTime();
+    slider->mouseDoubleClick(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),{},juce::ModifierKeys::leftButtonModifier,1,0,0,0,0,slider,slider,now,{},now,2,false));
+    check(std::abs(processor.parameters.getRawParameterValue("listenMonitorDb")->load())<.001f
+        && std::abs(processor.parameters.getRawParameterValue("sendMonitorDb")->load()+6)<.001f,"double-click resets only the selected monitor to 0 dB");
+    std::cout<<"PASS: native monitor UI changes real samples at shared dB gains, stereo metering, independent roles and double-click unity\n";
+}
 static void monitorMeter() {
     ShareStreamProcessor processor;processor.prepareToPlay(48000,128);
     check(processor.configuration().host==defaultRelayHost,"new processors connect through the relay domain");
@@ -199,6 +239,7 @@ int main(int argc,char** argv) {
             return 0;
         }
         monitorMeter();
+        monitorControls();
         ShareStreamProcessor processor;
         check(std::isinf(processor.getTailLengthSeconds()),"network source must not advertise a zero tail");
         auto layout=processor.getBusesLayout();

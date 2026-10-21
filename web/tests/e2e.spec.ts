@@ -1,14 +1,22 @@
 import { test, expect, type BrowserContext, type Browser, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 
-async function synthetic(context: BrowserContext) {
+async function synthetic(context: BrowserContext, voiceAmplitude = 1) {
   await context.addInitScript(
-    ({ relay, tcp }) => {
+    ({ relay, tcp, voiceAmplitude }) => {
       window.mediaRequests = { audio: 0, display: 0 };
       window.testPCs = [];
       window.captureTracks = [];
       window.iceErrors = [];
       window.micConstraints = [];
+      window.testAudioContexts = [];
+      const NativeAudioContext = window.AudioContext;
+      window.AudioContext = class extends NativeAudioContext {
+        constructor(options?: AudioContextOptions) {
+          super(options);
+          window.testAudioContexts.push(this);
+        }
+      };
       const NativePC = window.RTCPeerConnection;
       window.RTCPeerConnection = class extends NativePC {
         constructor(config: RTCConfiguration = {}) {
@@ -60,7 +68,9 @@ async function synthetic(context: BrowserContext) {
           oscillator = context.createOscillator(),
           target = context.createMediaStreamDestination();
         oscillator.frequency.value = 440;
-        oscillator.connect(target);
+        const gain = context.createGain();
+        gain.gain.value = voiceAmplitude;
+        oscillator.connect(gain).connect(target);
         oscillator.start();
         await context.resume();
         window.captureTracks.push(...target.stream.getTracks());
@@ -89,14 +99,18 @@ async function synthetic(context: BrowserContext) {
         return stream;
       };
     },
-    { relay: process.env.TEST_RELAY === "1", tcp: process.env.TEST_TURN_TCP === "1" },
+    {
+      relay: process.env.TEST_RELAY === "1",
+      tcp: process.env.TEST_TURN_TCP === "1",
+      voiceAmplitude,
+    },
   );
 }
-async function pair(browser: Browser, baseURL = "http://localhost:48101") {
+async function pair(browser: Browser, baseURL = "http://localhost:48101", voiceAmplitude = 1) {
   const a = await browser.newContext(),
     b = await browser.newContext();
-  await synthetic(a);
-  await synthetic(b);
+  await synthetic(a, voiceAmplitude);
+  await synthetic(b, voiceAmplitude);
   const pa = await a.newPage(),
     pb = await b.newPage(),
     code = randomBytes(16).toString("hex");
@@ -116,6 +130,231 @@ const stats = async (page: Page, kind: string, field: string) =>
     },
     { kind, field },
   );
+
+// Inspect the actual PCM stream handed to the output element. Element.volume
+// alone says nothing about a gain stage, and captureStream() ignores that property.
+async function voiceRms(page: Page): Promise<number> {
+  return page.locator("#voice").evaluate(async (element) => {
+    const stream = (element as HTMLAudioElement).srcObject as MediaStream | null;
+    if (!stream?.active) return 0;
+    const context = new AudioContext({ sampleRate: 48000 });
+    try {
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      const silent = context.createGain();
+      silent.gain.value = 0;
+      source.connect(analyser).connect(silent).connect(context.destination);
+      await context.resume();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const samples = new Float32Array(2048);
+      let squared = 0;
+      for (let window = 0; window < 8; window++) {
+        analyser.getFloatTimeDomainData(samples);
+        for (const sample of samples) squared += sample * sample;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return Math.sqrt(squared / (samples.length * 8));
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+test("voice monitor changes rendered PCM, meters and mute without altering the transmitted voice", async ({
+  browser,
+  baseURL,
+}) => {
+  const { a, b, pa, pb } = await pair(browser, baseURL, 0.125);
+  try {
+    await pa.locator("#join").click();
+    await pb.locator("#join").click();
+    await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await expect(pb.locator("#status")).toContainText("Connected");
+    await pa.locator("#mic").click();
+    await pb.locator("#mic").click();
+    await expect
+      .poll(() => stats(pb, "audio", "bytesReceived"), { timeout: 20000 })
+      .toBeGreaterThan(500);
+    await expect.poll(() => voiceRms(pb), { timeout: 10000 }).toBeGreaterThan(0.02);
+    await expect.poll(() => voiceRms(pa), { timeout: 10000 }).toBeGreaterThan(0.02);
+    const baseline = await voiceRms(pb);
+    const outgoingBaseline = await voiceRms(pa);
+    const volume = pb.getByRole("slider", { name: "Local monitor" });
+    const initialOutput = await pb
+      .locator("#voice")
+      .evaluate((element) => ((element as HTMLAudioElement).srcObject as MediaStream).id);
+    const peak = async () =>
+      Number(
+        (await pb.locator(".monitor-readout output").innerText()).match(/Peak (-?[\d.]+)/)?.[1],
+      );
+    await expect.poll(peak).toBeGreaterThan(-40);
+    const initialPeak = await peak();
+    for (const signal of await pb.locator(".monitor-signal").all())
+      await expect
+        .poll(() => signal.evaluate((element) => parseFloat((element as HTMLElement).style.width)))
+        .toBeGreaterThan(0);
+    await expect(pb.locator("#voice-source")).toHaveJSProperty("muted", true);
+    for (const db of [-6, -20, 6, -60, 0]) {
+      await volume.dblclick();
+      if (db === -60) await volume.press("Home");
+      else if (db === 6) await volume.press("End");
+      else for (let step = 0; step < -db; step++) await volume.press("PageDown");
+      await expect(volume).toHaveAttribute("aria-valuenow", String(db));
+      const expected = db === -60 ? 0 : 10 ** (db / 20);
+      await expect
+        .poll(async () => Math.abs((await voiceRms(pb)) / baseline - expected))
+        .toBeLessThan(expected * 0.08 + 0.003);
+      if (db === -60) {
+        expect(await voiceRms(pb)).toBeLessThan(1e-6);
+        await expect(pb.locator(".monitor-readout output")).toHaveText("Peak -inf dBFS");
+        for (const signal of await pb.locator(".monitor-signal").all())
+          await expect(signal).toHaveCSS("width", "0px");
+        expect(await voiceRms(pa)).toBeGreaterThan(outgoingBaseline * 0.85);
+      } else
+        await expect.poll(async () => Math.abs((await peak()) - initialPeak - db)).toBeLessThan(1);
+      expect(
+        await pb.locator("#voice").evaluate((element) => {
+          const audio = element as HTMLAudioElement;
+          return {
+            id: (audio.srcObject as MediaStream).id,
+            volume: audio.volume,
+            muted: audio.muted,
+            paused: audio.paused,
+          };
+        }),
+      ).toEqual({ id: initialOutput, volume: 1, muted: false, paused: false });
+    }
+    await pb.locator("#voice").evaluate((element) => {
+      window.voiceOutputTrack = (
+        (element as HTMLAudioElement).srcObject as MediaStream
+      ).getAudioTracks()[0];
+    });
+    await pb.locator("#leave").click();
+    await expect.poll(() => pb.evaluate(() => window.voiceOutputTrack?.readyState)).toBe("ended");
+    await expect(pb.locator(".monitor-readout output")).toHaveText("Peak -inf dBFS");
+    expect(
+      await pb.locator("#voice").evaluate((element) => (element as HTMLAudioElement).srcObject),
+    ).toBeNull();
+    // A new incoming track must retain the local fader value and retire the old
+    // output stream, rather than restarting at unity or keeping duplicate audio.
+    await volume.dblclick();
+    for (let step = 0; step < 6; step++) await volume.press("PageDown");
+    await pb.locator("#join").click();
+    await expect(pb.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await expect(volume).toHaveAttribute("aria-valuenow", "-6");
+    await expect
+      .poll(async () => Math.abs((await voiceRms(pb)) / baseline - 10 ** (-6 / 20)))
+      .toBeLessThan(0.05);
+    expect(
+      await pb
+        .locator("#voice")
+        .evaluate((element) => ((element as HTMLAudioElement).srcObject as MediaStream).id),
+    ).not.toBe(initialOutput);
+  } catch (error) {
+    console.log(
+      await pb.evaluate(async () => ({
+        error: document.querySelector("#error")?.textContent,
+        peak: document.querySelector(".monitor-readout")?.textContent,
+        contexts: window.testAudioContexts.map((c) => ({
+          state: c.state,
+          time: c.currentTime,
+          rate: c.sampleRate,
+        })),
+        audio: [...document.querySelectorAll("audio")].map((a) => ({
+          paused: a.paused,
+          volume: a.volume,
+          stream: (a.srcObject as MediaStream | null)
+            ?.getTracks()
+            .map((t) => ({ state: t.readyState, muted: t.muted, enabled: t.enabled })),
+        })),
+        stats: (await Promise.all(window.testPCs.map((p) => p.getStats()))).flatMap((s) =>
+          [...s.values()].filter((v) => v.type === "inbound-rtp" || v.type === "media-source"),
+        ),
+      })),
+    );
+    throw error;
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});
+test("voice monitor keeps mute and output selection through autoplay recovery and releases playback on leave", async ({
+  browser,
+  baseURL,
+}) => {
+  const { a, b, pa, pb } = await pair(browser, baseURL, 0.125);
+  try {
+    await pb.evaluate(() => {
+      const play = HTMLMediaElement.prototype.play;
+      let blocked = false;
+      HTMLMediaElement.prototype.play = function () {
+        if (this.id === "voice" && !blocked) {
+          blocked = true;
+          return Promise.reject(new DOMException("Autoplay blocked", "NotAllowedError"));
+        }
+        return play.call(this);
+      };
+      window.outputSinkRequests = [];
+      (document.querySelector("#voice") as HTMLAudioElement).setSinkId = async (id: string) => {
+        window.outputSinkRequests.push(id);
+      };
+      navigator.mediaDevices.enumerateDevices = async () => [
+        {
+          deviceId: "headphones",
+          groupId: "test",
+          kind: "audiooutput",
+          label: "Test headphones",
+          toJSON: () => ({}),
+        },
+      ];
+    });
+    const volume = pb.getByRole("slider", { name: "Local monitor" });
+    await volume.press("Home");
+    await pa.locator("#join").click();
+    await pb.locator("#join").click();
+    await expect(pb.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await pa.locator("#mic").click();
+    await expect(pb.locator("#play")).toBeVisible();
+    await pb.locator("#voice-settings > button").click();
+    await pb.getByRole("combobox", { name: "Voice output", exact: true }).click();
+    await pb.getByRole("option", { name: "Test headphones" }).click();
+    await expect.poll(() => pb.evaluate(() => window.outputSinkRequests)).toEqual(["headphones"]);
+    await pb.locator("#voice-settings > button").click();
+    const output = await pb
+      .locator("#voice")
+      .evaluate((element) => ((element as HTMLAudioElement).srcObject as MediaStream).id);
+    await pb.locator("#play").click();
+    await expect(pb.locator("#play")).toBeHidden();
+    expect(await voiceRms(pb)).toBeLessThan(1e-6);
+    await volume.dblclick();
+    await expect.poll(() => voiceRms(pb)).toBeGreaterThan(0.02);
+    expect(
+      await pb
+        .locator("#voice")
+        .evaluate((element) => ((element as HTMLAudioElement).srcObject as MediaStream).id),
+    ).toBe(output);
+    await expect.poll(() => pb.evaluate(() => window.outputSinkRequests)).toEqual(["headphones"]);
+    if (!process.env.TEST_BASE_URL)
+      await pb
+        .locator(".monitor-field")
+        .screenshot({ path: "../build/screenshots/web-monitor.png" });
+    await pb.locator("#leave").click();
+    await expect
+      .poll(() =>
+        pb.evaluate(
+          () => window.testAudioContexts.filter((context) => context.state !== "closed").length,
+        ),
+      )
+      .toBe(0);
+    await expect(pb.locator("#voice-source")).toHaveJSProperty("srcObject", null);
+    await expect(pb.locator("#voice")).toHaveJSProperty("srcObject", null);
+    await expect(pb.locator(".monitor-readout output")).toHaveText("Peak -inf dBFS");
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});
 const selectedCandidates = async (page: Page, field: string) =>
   page.evaluate(async (field) => {
     const result = [];
@@ -377,7 +616,7 @@ test("mobile page fits its viewport and opens with capture off", async ({ browse
   }
 });
 
-test("Radix controls support the keyboard and update actual voice playback volume", async ({
+test("Radix controls support the keyboard and the native monitor range and reset", async ({
   browser,
   baseURL,
 }) => {
@@ -404,17 +643,23 @@ test("Radix controls support the keyboard and update actual voice playback volum
     await expect(mode).toHaveText("Speakers · echo cancellation");
     await expect(mode).toBeFocused();
     await expect(page.locator("#voice-mode-note")).toContainText("may lower other apps");
-    const volume = page.getByRole("slider", { name: "Partner’s voice volume" });
+    const volume = page.getByRole("slider", { name: "Local monitor" });
     await volume.focus();
+    await expect(volume).toHaveAttribute("aria-valuemin", "-60");
+    await expect(volume).toHaveAttribute("aria-valuemax", "6");
     await volume.press("Home");
-    await expect(volume).toHaveAttribute("aria-valuenow", "0");
-    await expect
-      .poll(() => page.locator("#voice").evaluate((audio) => (audio as HTMLAudioElement).volume))
-      .toBe(0);
+    await expect(volume).toHaveAttribute("aria-valuenow", "-60");
+    await expect(volume).toHaveAttribute("aria-valuetext", "Mute");
     await volume.press("End");
-    await expect
-      .poll(() => page.locator("#voice").evaluate((audio) => (audio as HTMLAudioElement).volume))
-      .toBe(1);
+    await expect(volume).toHaveAttribute("aria-valuenow", "6");
+    await volume.press("ArrowLeft");
+    await expect(volume).toHaveAttribute("aria-valuenow", "5.9");
+    await volume.dblclick();
+    await expect(volume).toHaveAttribute("aria-valuenow", "0");
+    await expect(page.locator("#volume-value")).toHaveText("0.0 dB");
+    await page.locator("#voice-settings > button").click();
+    await expect(volume).toBeVisible();
+    await expect(page.locator(".monitor-channel")).toHaveCount(2);
     expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
     expect(errors).toEqual([]);
   } finally {

@@ -44,6 +44,7 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
         content.addAndMakeVisible(button);button->setMouseCursor(juce::MouseCursor::PointingHandCursor);
     }
     for(auto* button:{&collaboration,&update}) {addAndMakeVisible(button);button->setMouseCursor(juce::MouseCursor::PointingHandCursor);}
+    send.setComponentID("send-role");receive.setComponentID("listen-role");
     collaboration.onClick=[this]{
         saveConfiguration();const auto url=processor.collaborationURL();
         if(url.isEmpty()){notice="Enter a valid session and server in settings.";noticeTicks=60;return;}
@@ -64,7 +65,7 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     content.addAndMakeVisible(quality);for(int value=0;value<3;++value)quality.addItem(sharestream::qualityName(static_cast<sharestream::AudioQuality>(value)),value+1);
     quality.setSelectedId(static_cast<int>(cfg.quality)+1,juce::dontSendNotification);quality.onChange=[this]{saveConfiguration();};
     quality.setTooltip("Sender controls the stream format. Older peers use Float32 automatically. PCM 24-bit and Opus clip above 0 dBFS.");
-    content.addAndMakeVisible(monitor);monitor.setSliderStyle(juce::Slider::LinearHorizontal);monitor.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
+    content.addAndMakeVisible(monitor);monitor.setComponentID("local-monitor");monitor.setSliderStyle(juce::Slider::LinearHorizontal);monitor.setTextBoxStyle(juce::Slider::NoTextBox,false,0,0);
     monitor.setDoubleClickReturnValue(true,0);monitor.setTitle("Local monitor");monitor.setTooltip("Only changes your local output. Double-click for 0 dB. Gain -60 to +6 dB; L/R bars show the output signal in dBFS.");
     monitor.onValueChange=[this]{gain.setText(monitor.getValue()<=-60?"Mute":juce::String(monitor.getValue(),1)+" dB",juce::dontSendNotification);};
     for(auto* l:{&serverLabel,&portLabel,&roomLabel,&bufferLabel,&qualityLabel,&status,&stats,&hint,&gain,&peak}){content.addAndMakeVisible(l);labelStyle(*l);}

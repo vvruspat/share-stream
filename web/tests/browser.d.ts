@@ -8,6 +8,9 @@ declare global {
     micConstraints: MediaTrackConstraints[];
     forcePressure?: boolean;
     testSocket: WebSocket;
+    voiceOutputTrack?: MediaStreamTrack;
+    testAudioContexts: AudioContext[];
+    outputSinkRequests: string[];
   }
   interface RTCRtpEncodingParameters {
     networkPriority?: "very-low" | "low" | "medium" | "high";

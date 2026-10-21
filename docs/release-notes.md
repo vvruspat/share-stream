@@ -1,11 +1,12 @@
-Share Stream 0.4.3 fixes opening voice and screen chat from the plug-in and standalone receiver.
+Share Stream 0.4.4 brings the native Local monitor fader to browser voice playback.
 
-- **Voice & screen** now preserves the invitation fragment exactly when opening the browser. Room, relay, port, auto-join and the private participant binding arrive correctly.
-- The browser and native Paste invite also accept existing invitations whose whole fragment was escaped once or twice by earlier clients. Once this web update is deployed, links opened by v0.4.2 clients work without reinstalling them.
-- Native and browser presence still represent the same participant. The private binding is consumed into this tab’s session storage and removed from the shareable URL. Microphone and screen capture remain off until explicitly enabled.
-- Canonical invitations remain unchanged. Duplicate parameters and encoded field values cannot introduce extra invitation fields.
+- Browser voice now uses a real Web Audio gain stage before playback. Gain changes affect the output samples, including exact mute, and use the same 20 ms smoothing as the native music monitor.
+- Both faders use **-60 to +6 dB**, **0.1 dB steps**, **Mute** at the minimum and **double-click to return to 0 dB**. The browser now matches the native two-track L/R meter, narrow thumb and peak readout. Meter bars show the actual post-gain signal independently of the gain thumb.
+- Browser Local monitor remains visible outside the collapsed voice settings. It changes the partner’s received voice; the native Local monitor changes the music output. Local gain does not change what the partner receives.
+- The selected voice output, explicit Play button for blocked autoplay, mute and gain survive playback recovery and track replacement. Leaving stops the playback graph and clears its meters. Opening voice still does not capture microphone or screen automatically.
+- Shared gain fixtures and tests exercise native fader actions against real stereo samples; browser tests measure the processed PCM arriving at the output rather than only checking an HTML volume property.
 
-All v0.4.2 session controls, streaming qualities, monitoring, participant names and domain-based connections are retained.
+All v0.4.3 chat invitation compatibility and earlier streaming, participant and quality controls are retained.
 
 | Platform | Combined installer |
 | --- | --- |
@@ -16,4 +17,4 @@ All v0.4.2 session controls, streaming qualities, monitoring, participant names 
 
 Each installer includes the receiver and VST3; macOS also includes AU. macOS binaries and Setup use the owner’s Apple Developer ID signature and Apple notarization. Windows Setup is currently unsigned. The original macOS ZIP downloads remain available.
 
-Use the built-in updater or download the installer. Save your session before installing and restart the standalone/DAW afterwards. Version 0.3.1 predates the updater and needs a manual installation. Checksums are in `SHA256SUMS.txt`; Apple’s report is in `NOTARIZATION.json`.
+Use the built-in updater or download the installer. Save your session before installing and restart the standalone/DAW afterwards. Refresh or reopen the browser chat to load its updated controls. Checksums are in `SHA256SUMS.txt`; Apple’s report is in `NOTARIZATION.json`.

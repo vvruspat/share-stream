@@ -42,4 +42,4 @@ export type SignalPayload =
   | RemoteMedia
   | { description: RTCSessionDescriptionInit }
   | { candidate: RTCIceCandidateInit };
-export const WEB_VERSION = "0.4.3";
+export const WEB_VERSION = "0.4.4";

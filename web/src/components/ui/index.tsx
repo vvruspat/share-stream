@@ -5,12 +5,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import {
-  Collapsible,
-  Select as RadixSelect,
-  Slider as RadixSlider,
-  Tooltip as RadixTooltip,
-} from "radix-ui";
+import { Collapsible, Select as RadixSelect, Tooltip as RadixTooltip } from "radix-ui";
 import { CheckIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
 
 export function Button({
@@ -95,40 +90,7 @@ export function Select({
   );
 }
 
-export function Slider({
-  id,
-  label,
-  value,
-  onValueChange,
-}: {
-  id: string;
-  label: string;
-  value: number;
-  onValueChange: (value: number) => void;
-}) {
-  return (
-    <div className="field volume-field">
-      <div className="volume-label">
-        <label htmlFor={id}>{label}</label>
-        <output>{Math.round(value * 100)}%</output>
-      </div>
-      <RadixSlider.Root
-        id={id}
-        className="slider"
-        value={[value]}
-        min={0}
-        max={1}
-        step={0.01}
-        onValueChange={(values) => onValueChange(values[0])}
-      >
-        <RadixSlider.Track className="slider-track">
-          <RadixSlider.Range className="slider-range" />
-        </RadixSlider.Track>
-        <RadixSlider.Thumb className="slider-thumb" aria-label={label} />
-      </RadixSlider.Root>
-    </div>
-  );
-}
+export { MonitorSlider } from "./MonitorSlider.js";
 
 export const TooltipProvider = RadixTooltip.Provider;
 export const TooltipContainer = createContext<HTMLElement | null>(null);

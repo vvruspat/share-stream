@@ -1,6 +1,31 @@
 # Share Stream — validation
 
-## Session UI and PR checks (unreleased, 2026-10-20)
+## 0.4.4 local monitor controls (2026-10-21)
+
+- Native UI tests drive the real fader, read actual stereo processor samples and
+  post-gain peaks against `Tests/MonitorGains.json`: -60 dB/mute, -59.9, -40, -20,
+  -6, 0 and +6 dB. They also verify independent Send/Listen values, restored role
+  values and a real double-click resetting only the selected parameter to unity.
+  The existing encrypted Send test confirms local mute leaves the remote level intact.
+- Browser WebRTC tests send a quiet synthetic tone between two peers and measure
+  the processed PCM stream handed to the output element. Attenuation, boost and
+  exact mute are checked against expected RMS ratios; local mute leaves outgoing
+  voice audible. Both post-gain meter bars, peak readout, keyboard steps, unity
+  reset and the always-visible control are covered. This measures decoded samples,
+  not an audio interface or DAC. [Element capture is independent of HTML volume](https://www.w3.org/TR/mediacapture-fromelement/).
+- A muted renderer keeps Chromium's incoming RTP decoder running while the Web
+  Audio graph applies gain. The test checks this renderer remains muted, so it
+  cannot provide a second audible path around the fader.
+- Playback tests cover initial mute, denied autoplay/explicit Play recovery,
+  selected output routing, preserved gain across leave/rejoin, retiring replaced
+  output tracks, clearing meters and closing AudioContexts on departure. The
+  output-device test stubs `setSinkId`; physical output-device switching was not
+  automated. No microphone or screen capture is started by opening the control.
+- Local web lint/typecheck, 21 unit tests, 13 browser scenarios and native processor
+  receive/control tests passed. `build/screenshots/web-monitor.png` contains the
+  rendered browser fader; the 640x780 native editor is its visual reference.
+
+## Session UI and PR checks (2026-10-20)
 
 - PR jobs run lint/typecheck, Python tests, native test executables and browser
   tests. The test-only CMake configuration removes product/installer targets;
@@ -22,7 +47,7 @@
   short synthetic network observation, not a physical audio-interface measurement.
   HTTPS health also returned healthy. No server deployment/restart was needed.
 
-## Stream controls and quality (unreleased, 2026-10-19)
+## Stream controls and quality (2026-10-19)
 
 - Universal arm64/x86_64 VST3, AU and receiver build locally. Six native CTests pass:
   core protocol, codecs, transport, processor receive/monitoring, actual VST3 host,
@@ -55,8 +80,8 @@
   inspected. The standalone remains output-only; no microphone capture was added.
 - libopus is pinned and static; its complete notice is packaged in macOS bundles,
   Windows installations and Linux documentation. CI validates the native platform
-  builds/installers separately. These source changes are not yet a public release
-  and were not installed into or substituted for the user's running DAW/receiver.
+  builds/installers separately. These controls were subsequently published in
+  v0.4.2; the local checks did not replace the user's running DAW/receiver.
 
 ## 0.3.1 Listen and unified invitation
 
