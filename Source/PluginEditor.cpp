@@ -45,9 +45,9 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     }
     for(auto* button:{&collaboration,&update}) {addAndMakeVisible(button);button->setMouseCursor(juce::MouseCursor::PointingHandCursor);}
     collaboration.onClick=[this]{
-        saveConfiguration();const auto link=processor.collaborationLink();
-        if(link.isEmpty()){notice="Enter a valid session and server in settings.";noticeTicks=60;return;}
-        if(!juce::URL(link).launchInDefaultBrowser()){notice="Could not open the browser.";noticeTicks=60;}
+        saveConfiguration();const auto url=processor.collaborationURL();
+        if(url.isEmpty()){notice="Enter a valid session and server in settings.";noticeTicks=60;return;}
+        if(!url.launchInDefaultBrowser()){notice="Could not open the browser.";noticeTicks=60;}
     };
     collaboration.setTooltip("Open voice and screen in this session. Microphone and screen stay off until you enable them.");
     audioSettings.onClick=[this]{if(onAudioSettings)onAudioSettings();};

@@ -114,12 +114,14 @@ sharestream::ParticipantPresence::State ShareStreamProcessor::participants() con
     if(result.room!=juce::SHA256(label.toRawUTF8(),label.getNumBytesAsUTF8()).toHexString())return {};
     return result;
 }
-juce::String ShareStreamProcessor::collaborationLink() {
+juce::URL ShareStreamProcessor::collaborationURL() {
     const auto c=configuration();
     const auto invite=sharestream::invitationLink({c.code,sharestream::RelayAddress{c.host,c.port}});
     if(invite.empty())return {};
     presence.activate();
-    return juce::String(invite)+"&participant="+sharestream::ParticipantPresence::localToken(c.code);
+    // The invitation is already encoded. Parsing it as a JUCE URL would escape
+    // the entire fragment on launch, including the '=' and '&' separators.
+    return juce::URL::createWithoutParsing(juce::String(invite)+"&participant="+sharestream::ParticipantPresence::localToken(c.code));
 }
 juce::AudioProcessorEditor* ShareStreamProcessor::createEditor() { return new ShareStreamEditor(*this); }
 void ShareStreamProcessor::getStateInformation(juce::MemoryBlock& data) {

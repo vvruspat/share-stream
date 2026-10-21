@@ -36,7 +36,7 @@ public:
     double currentSampleRate() const { return meterSampleRate.load(); }
     sharestream::ParticipantPresence::State participants() const;
     juce::String participantId() const;
-    juce::String collaborationLink();
+    juce::URL collaborationURL();
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
     juce::AudioProcessorValueTreeState parameters;
 private:

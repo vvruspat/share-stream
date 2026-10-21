@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { randomId, roomKeys } from "./crypto.js";
+import { invitationParameters } from "./invitation.js";
 import type { Participant, PresenceUpdate } from "../../shared/presence.js";
 
 export function participantToken(room: string | null): string {
-  const params = new URLSearchParams(location.hash.slice(1));
-  const supplied = params.get("participant");
+  const supplied = room ? invitationParameters(location.hash).get("participant") : null;
   const key = `sharestream:participant:${room}`;
   let saved: string | null = null;
   try {

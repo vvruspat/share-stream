@@ -89,7 +89,9 @@ static void monitorMeter() {
     check(levels[0]==0 && levels[1]==0 && std::abs(processor.parameters.getRawParameterValue("sendMonitorDb")->load()+6)<.001f,"silence clears signal bars without moving gain");
     render(.25f,-.5f);processor.releaseResources();levels=processor.monitorPeaks();
     check(levels[0]==0 && levels[1]==0,"stopped audio cannot leave stale meter telemetry");
-    const auto id=processor.participantId();const auto privateLink=processor.collaborationLink();
+    const auto id=processor.participantId();const auto browserURL=processor.collaborationURL();
+    const auto privateLink=browserURL.toString(true);
+    check(privateLink.contains("#room=") && privateLink.contains("&join=1&participant="),"the exact browser launch URL preserves fragment separators and auto-join intent");
     const auto invite=parseInvitation(privateLink.toStdString());
     check(invite.has_value() && privateLink.contains("&participant="),"Voice & screen binds this participant to the existing room");
     check(!juce::String(invitationLink(*invite)).contains("participant="),"shared invitations never copy the private participant binding");
