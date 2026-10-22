@@ -45,7 +45,7 @@ void ParticipantPresence::run() {
     juce::var previous;
     while(!threadShouldExit()) {
         auto body=readSession();
-        if(!previous.isVoid() && previous["room"]!=body["room"]) {
+        if(!previous.isVoid() && (previous["room"]!=body["room"] || previous["token"]!=body["token"])) {
             previous.getDynamicObject()->setProperty("connected",false);post(previous);
         }
         auto response=post(body);

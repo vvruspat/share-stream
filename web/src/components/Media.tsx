@@ -1,21 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowsPointingInIcon,
-  ArrowsPointingOutIcon,
-  ComputerDesktopIcon,
-  PlayIcon,
-} from "@heroicons/react/24/outline";
+import { ArrowsPointingInIcon, ArrowsPointingOutIcon, PlayIcon } from "@heroicons/react/24/outline";
 import { Button, Tooltip, TooltipContainer } from "./ui/index.js";
 import { VoicePlayback } from "../audio/VoicePlayback.js";
 import type { StereoPeaks } from "../audio/monitor.js";
 
 export function VoicePlayer({
+  id = "voice",
   stream,
   gainDb,
   output,
   onPeaks,
   onError,
 }: {
+  id?: string;
   stream: MediaStream | null;
   gainDb: number;
   output: string;
@@ -98,11 +95,11 @@ export function VoicePlayer({
   }, [output, onError]);
   return (
     <>
-      <audio id="voice-source" ref={sourceRef} autoPlay muted />
-      <audio id="voice" ref={ref} autoPlay />
+      <audio id={`${id}-source`} ref={sourceRef} autoPlay muted />
+      <audio id={id} ref={ref} autoPlay />
       {needsPlay && (
         <Button
-          id="play"
+          id={id === "voice" ? "play" : `play-${id}`}
           onClick={() => {
             void play().catch(onError);
           }}
@@ -112,6 +109,89 @@ export function VoicePlayer({
         </Button>
       )}
     </>
+  );
+}
+
+type VoicePeers = { id: string; voice: MediaStream | null }[];
+export function RoomVoices({
+  peers,
+  gainDb,
+  output,
+  onPeaks,
+  onError,
+}: {
+  peers: VoicePeers;
+  gainDb: number;
+  output: string;
+  onPeaks: (peaks: StereoPeaks) => void;
+  onError: (error: unknown) => void;
+}) {
+  const levels = useRef(new Map<string, StereoPeaks>());
+  const report = useCallback(
+    (id: string, peaks: StereoPeaks) => {
+      levels.current.set(id, peaks);
+      const total: [number, number] = [0, 0];
+      for (const value of levels.current.values()) {
+        total[0] += value[0];
+        total[1] += value[1];
+      }
+      onPeaks(total);
+    },
+    [onPeaks],
+  );
+  const voices = peers.filter((p) => p.voice);
+  return (
+    <>
+      <RoomVoice
+        key="primary"
+        peer={voices[0] || { id: "primary", voice: null }}
+        id="voice"
+        gainDb={gainDb}
+        output={output}
+        report={report}
+        onError={onError}
+      />
+      {voices.slice(1).map((peer) => (
+        <RoomVoice
+          key={peer.id}
+          peer={peer}
+          id={`voice-${peer.id}`}
+          gainDb={gainDb}
+          output={output}
+          report={report}
+          onError={onError}
+        />
+      ))}
+    </>
+  );
+}
+
+function RoomVoice({
+  peer,
+  id,
+  gainDb,
+  output,
+  report,
+  onError,
+}: {
+  peer: VoicePeers[number];
+  id: string;
+  gainDb: number;
+  output: string;
+  report: (id: string, peaks: StereoPeaks) => void;
+  onError: (error: unknown) => void;
+}) {
+  const onPeaks = useCallback((peaks: StereoPeaks) => report(peer.id, peaks), [peer.id, report]);
+  useEffect(() => () => report(peer.id, [0, 0]), [peer.id, report]);
+  return (
+    <VoicePlayer
+      id={id}
+      stream={peer.voice}
+      gainDb={gainDb}
+      output={output}
+      onPeaks={onPeaks}
+      onError={onError}
+    />
   );
 }
 
@@ -154,6 +234,8 @@ export function ScreenStage({
   error,
   onError,
   children,
+  placeholder,
+  afterControls,
 }: {
   stream: MediaStream | null;
   local: MediaStream | null;
@@ -161,6 +243,8 @@ export function ScreenStage({
   error: string;
   onError: (error: unknown) => void;
   children: React.ReactNode;
+  placeholder: React.ReactNode;
+  afterControls?: React.ReactNode;
 }) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [full, setFull] = useState(false);
@@ -195,29 +279,26 @@ export function ScreenStage({
             label="Partner’s shared screen"
           />
           <div id="placeholder" className="placeholder" hidden={(!!stream && sharing) || !!local}>
-            <div className="screen-symbol">
-              <ComputerDesktopIcon />
-            </div>
-            <h2>A little closer to the mix.</h2>
-            <p>A participant’s shared screen will appear here.</p>
+            {placeholder}
           </div>
           <Video id="local-screen" stream={local} label="Your screen preview" />
-          <div className="stream-toolbar" role="toolbar" aria-label="Call controls">
-            {children}
-            <span className="toolbar-divider" />
-            <Tooltip content={full ? "Exit full screen" : "Enter full screen"}>
-              <Button
-                id="fullscreen"
-                variant="ghost"
-                className="icon-button"
-                aria-label={full ? "Exit full screen" : "Enter full screen"}
-                aria-pressed={full}
-                onClick={() => void fullscreen()}
-              >
-                {full ? <ArrowsPointingInIcon /> : <ArrowsPointingOutIcon />}
-              </Button>
-            </Tooltip>
-          </div>
+        </div>
+        <div className="stream-toolbar" role="toolbar" aria-label="Call controls">
+          {children}
+          <span className="toolbar-divider" />
+          <Tooltip content={full ? "Exit full screen" : "Enter full screen"}>
+            <Button
+              id="fullscreen"
+              variant="ghost"
+              className="icon-button"
+              aria-label={full ? "Exit full screen" : "Enter full screen"}
+              aria-pressed={full}
+              onClick={() => void fullscreen()}
+            >
+              {full ? <ArrowsPointingInIcon /> : <ArrowsPointingOutIcon />}
+            </Button>
+          </Tooltip>
+          <div className="toolbar-end">{afterControls}</div>
         </div>
       </TooltipContainer.Provider>
     </section>

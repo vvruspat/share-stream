@@ -25,6 +25,8 @@ export interface CallState {
 }
 export type VoiceMode = "headphones" | "speakers";
 interface PeerConnection {
+  peer: string;
+  channel: MediaChannel;
   pc: RTCPeerConnection;
   sender?: RTCRtpSender;
   candidates: RTCIceCandidateInit[];
@@ -34,8 +36,8 @@ interface PeerConnection {
 interface CallEvents {
   state: CallState;
   error: string;
-  remoteState: Partial<RemoteMedia>;
-  track: { channel: MediaChannel; stream: MediaStream | null };
+  remoteState: Partial<RemoteMedia> & { peer?: string };
+  track: { peer?: string; channel: MediaChannel; stream: MediaStream | null };
   localScreen: MediaStream | null;
   network: { rtt: number; pressure: boolean };
 }
@@ -49,7 +51,9 @@ export class Call extends EventTarget {
   readonly resume: string;
   active: boolean;
   state: string;
-  pcs: Map<MediaChannel, PeerConnection>;
+  pcs: Map<string, PeerConnection>;
+  members = new Set<string>();
+  remoteStates = new Map<string, RemoteMedia>();
   seen: Map<string, number>;
   seq: number;
   sendChain: Promise<void>;
@@ -196,11 +200,11 @@ export class Call extends EventTarget {
       this.iceServers = m.iceServers;
       this.state = "Room open · waiting for your partner";
       this.changed();
-      if (m.peers[0]) await this.addPeer(m.peers[0]);
+      for (const id of m.peers) await this.addPeer(id);
     } else if (m.type === "peer") await this.addPeer(m.id);
-    else if (m.type === "left" && this.peer === m.id) {
-      this.dropPeer();
-      this.state = "Partner left · waiting";
+    else if (m.type === "left" && this.hasPeer(m.id)) {
+      this.dropPeer(m.id);
+      this.state = this.members.size ? "Connected · encrypted group" : "Partner left · waiting";
       this.changed();
     } else if (m.type === "ice") {
       this.iceServers = m.iceServers;
@@ -208,11 +212,12 @@ export class Call extends EventTarget {
         entry.pc.setConfiguration({ ...entry.pc.getConfiguration(), iceServers: m.iceServers });
       // Renew allocations before the old one-hour TURN username expires. ICE
       // restarts keep the existing media path while checking the new candidates.
-      for (const channel of mediaChannels) {
-        if (this.id < (this.peer || "")) await this.offer(channel, true);
-        else if (this.peer) await this.signal("control", { type: "restart", channel });
-      }
-    } else if (m.type === "signal" && m.from === this.peer && m.to === this.id) {
+      for (const peer of this.members)
+        for (const channel of mediaChannels) {
+          if (this.id < peer) await this.offer(channel, true, peer);
+          else await this.signal("control", { type: "restart", channel }, peer);
+        }
+    } else if (m.type === "signal" && this.hasPeer(m.from) && m.to === this.id) {
       const generation = this.generation,
         replayKey = m.from + ":" + m.channel;
       if (m.seq <= (this.seen.get(replayKey) || 0)) return;
@@ -226,22 +231,48 @@ export class Call extends EventTarget {
       if (generation !== this.generation) return;
       this.seen.set(replayKey, m.seq);
       if (m.channel === "control") {
-        if ("type" in data && data.type === "ready" && this.id < (this.peer || ""))
-          for (const channel of mediaChannels) await this.offer(channel);
-        else if ("type" in data && data.type === "restart" && this.id < (this.peer || ""))
-          await this.offer(data.channel, true);
-        else if ("type" in data && data.type === "media") this.emit("remoteState", data);
-      } else await this.rtcMessage(m.channel, data);
+        if ("type" in data && data.type === "ready" && this.id < m.from)
+          for (const channel of mediaChannels) await this.offer(channel, false, m.from);
+        else if ("type" in data && data.type === "restart" && this.id < m.from)
+          await this.offer(data.channel, true, m.from);
+        else if ("type" in data && data.type === "media") {
+          this.remoteStates.set(m.from, data);
+          this.emit("remoteState", { ...data, peer: m.from });
+        }
+      } else await this.rtcMessage(m.channel, data, m.from);
     }
   }
-  signal(channel: Channel, payload: SignalPayload) {
-    const peer = this.peer,
-      generation = this.generation,
+  hasPeer(id: string) {
+    return this.members.has(id) || this.peer === id;
+  }
+  connection(channel: MediaChannel, peer = this.peer) {
+    return peer ? this.pcs.get(`${peer}:${channel}`) : undefined;
+  }
+  async replaceTrack(channel: MediaChannel, track: MediaStreamTrack | null) {
+    await Promise.all(
+      [...this.pcs.values()]
+        .filter((e) => e.channel === channel)
+        .map(async (e) => {
+          try {
+            await e.sender?.replaceTrack(track);
+          } catch (error) {
+            if (this.connection(channel, e.peer) === e) throw error;
+          }
+        }),
+    );
+  }
+  signal(channel: Channel, payload: SignalPayload, peer?: string): Promise<void> {
+    if (peer === undefined)
+      return Promise.all([...this.members].map((id) => this.signal(channel, payload, id))).then(
+        () => {},
+      );
+    const generation = this.generation,
       ws = this.ws;
     this.sendChain = this.sendChain
       .then(async () => {
         if (
           !peer ||
+          !this.hasPeer(peer) ||
           generation !== this.generation ||
           ws !== this.ws ||
           ws?.readyState !== WebSocket.OPEN
@@ -263,9 +294,9 @@ export class Call extends EventTarget {
     return this.sendChain;
   }
   async addPeer(id: string) {
-    if (this.peer === id) return;
-    this.dropPeer();
-    this.peer = id;
+    if (this.members.has(id)) return;
+    this.members.add(id);
+    this.peer ||= id;
     this.state = "Connecting to partner…";
     const generation = this.generation;
     for (const channel of mediaChannels) {
@@ -284,15 +315,17 @@ export class Call extends EventTarget {
       }
       const entry: PeerConnection = {
         pc,
+        peer: id,
+        channel,
         sender: transceiver?.sender,
         candidates: [],
         offering: false,
         previous: new Map(),
       };
-      this.pcs.set(channel, entry);
+      this.pcs.set(`${id}:${channel}`, entry);
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate && generation === this.generation)
-          void this.signal(channel, { candidate: candidate.toJSON() });
+        if (candidate && generation === this.generation && this.members.has(id))
+          void this.signal(channel, { candidate: candidate.toJSON() }, id);
       };
       pc.ontrack = ({ track, receiver }) => {
         if (channel === "voice" && "jitterBufferTarget" in receiver) {
@@ -302,52 +335,56 @@ export class Call extends EventTarget {
             /* Keep the browser's adaptive buffer if unsupported. */
           }
         }
-        if (generation === this.generation)
-          this.emit("track", { channel, stream: new MediaStream([track]) });
+        if (generation === this.generation && this.members.has(id))
+          this.emit("track", { peer: id, channel, stream: new MediaStream([track]) });
       };
       pc.onconnectionstatechange = () => {
-        if (generation !== this.generation) return;
-        const connected = [...this.pcs.values()].every((e) => e.pc.connectionState === "connected");
+        if (generation !== this.generation || !this.members.has(id)) return;
+        const connected = [...this.pcs.values()].some((e) => e.pc.connectionState === "connected");
         this.state = connected
           ? "Connected · encrypted P2P / TURN fallback"
           : "Connecting to partner…";
         this.changed();
         if (pc.connectionState === "failed") {
-          if (this.id < (this.peer || ""))
-            this.offer(channel, true).catch((error) =>
+          if (this.id < id)
+            this.offer(channel, true, id).catch((error) =>
               this.emit("error", error instanceof Error ? error.message : String(error)),
             );
-          else void this.signal("control", { type: "restart", channel });
+          else void this.signal("control", { type: "restart", channel }, id);
         }
       };
       await entry.sender?.replaceTrack(this.localTrack(channel));
     }
     this.changed();
-    await this.signal("control", { type: "ready" });
+    await this.signal("control", { type: "ready" }, id);
     void this.sendMediaState();
   }
   localTrack(channel: MediaChannel): MediaStreamTrack | null {
     if (channel === "voice") return this.micStream?.getAudioTracks()[0] || null;
     return this.screenStream?.getVideoTracks()[0] || null;
   }
-  async offer(channel: MediaChannel, restart = false) {
-    const e = this.pcs.get(channel);
+  async offer(channel: MediaChannel, restart = false, peer = this.peer) {
+    const e = this.connection(channel, peer);
     if (!e || e.offering || e.pc.signalingState !== "stable") return;
     e.offering = true;
     try {
       await e.pc.setLocalDescription(await e.pc.createOffer({ iceRestart: restart }));
-      await this.signal(channel, { description: e.pc.localDescription!.toJSON() });
+      await this.signal(
+        channel,
+        { description: e.pc.localDescription!.toJSON() },
+        peer || undefined,
+      );
     } finally {
       e.offering = false;
     }
   }
-  async rtcMessage(channel: MediaChannel, data: SignalPayload) {
-    const e = this.pcs.get(channel);
+  async rtcMessage(channel: MediaChannel, data: SignalPayload, peer = this.peer) {
+    const e = this.connection(channel, peer);
     if (!e) return;
     if ("description" in data) {
       if (!["offer", "answer"].includes(data.description.type)) return;
       // Only the lexicographically smaller peer offers; media toggles use replaceTrack.
-      if (data.description.type === "offer" && this.id < (this.peer || "")) return;
+      if (data.description.type === "offer" && this.id < (peer || "")) return;
       await e.pc.setRemoteDescription(data.description);
       if (data.description.type === "offer") {
         const transceiver = e.pc.getTransceivers()[0];
@@ -358,16 +395,24 @@ export class Call extends EventTarget {
       for (const candidate of e.candidates.splice(0)) await e.pc.addIceCandidate(candidate);
       if (data.description.type === "offer") {
         await e.pc.setLocalDescription(await e.pc.createAnswer());
-        await this.signal(channel, { description: e.pc.localDescription!.toJSON() });
+        await this.signal(
+          channel,
+          { description: e.pc.localDescription!.toJSON() },
+          peer || undefined,
+        );
       }
-      await this.configureSender(channel);
+      await this.configureSender(channel, peer || undefined);
     } else if ("candidate" in data) {
       if (e.pc.remoteDescription) await e.pc.addIceCandidate(data.candidate);
       else e.candidates.push(data.candidate);
     }
   }
-  async configureSender(channel: MediaChannel) {
-    const e = this.pcs.get(channel);
+  async configureSender(channel: MediaChannel, peer?: string): Promise<void> {
+    if (peer === undefined) {
+      await Promise.all([...this.members].map((id) => this.configureSender(channel, id)));
+      return;
+    }
+    const e = this.connection(channel, peer);
     if (!e?.sender || e.pc.signalingState !== "stable") return;
     // Browsers without the priority extension still receive the hard bitrate cap.
     const p = e.sender.getParameters();
@@ -407,7 +452,7 @@ export class Call extends EventTarget {
     this.changed();
     let stream: MediaStream | undefined;
     try {
-      await this.pcs.get("voice")?.sender?.replaceTrack(null);
+      await this.replaceTrack("voice", null);
       if (!this.active || request !== this.micRequest) return;
       const processed = this.voiceMode === "speakers";
       const audio: MediaTrackConstraints = {
@@ -458,7 +503,7 @@ export class Call extends EventTarget {
       track.onended = () => {
         if (this.micStream === stream) this.stopMic();
       };
-      await this.pcs.get("voice")?.sender?.replaceTrack(this.localTrack("voice"));
+      await this.replaceTrack("voice", this.localTrack("voice"));
       await this.configureSender("voice");
       void this.sendMediaState();
     } catch (error) {
@@ -491,10 +536,7 @@ export class Call extends EventTarget {
     this.micBusy = false;
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.micStream = null;
-    this.pcs
-      .get("voice")
-      ?.sender?.replaceTrack(null)
-      .catch(() => {});
+    void this.replaceTrack("voice", null).catch(() => {});
     void this.sendMediaState();
     this.changed();
   }
@@ -524,7 +566,7 @@ export class Call extends EventTarget {
       if (this.screenStream === stream) this.stopScreen();
     };
     try {
-      await this.pcs.get("screen")?.sender?.replaceTrack(track);
+      await this.replaceTrack("screen", track);
       await this.configureSender("screen");
     } catch (error) {
       this.stopScreen();
@@ -537,10 +579,7 @@ export class Call extends EventTarget {
   stopScreen() {
     this.screenStream?.getTracks().forEach((t) => t.stop());
     this.screenStream = null;
-    this.pcs
-      .get("screen")
-      ?.sender?.replaceTrack(null)
-      .catch(() => {});
+    void this.replaceTrack("screen", null).catch(() => {});
     this.emit("localScreen", null);
     void this.sendMediaState();
     this.changed();
@@ -554,46 +593,52 @@ export class Call extends EventTarget {
     });
   }
   async measure() {
-    const e = this.pcs.get("screen") || this.pcs.get("voice");
-    if (!e || e.pc.connectionState !== "connected") return;
-    const generation = this.generation,
-      report = await e.pc.getStats();
+    const generation = this.generation;
     let pressure = false,
       rtt = 0;
-    for (const s of report.values()) {
-      if (s.type === "candidate-pair" && s.state === "succeeded" && s.nominated) {
-        rtt = s.currentRoundTripTime || 0;
-        pressure ||= rtt > 0.3;
-      }
-      if (s.type === "remote-inbound-rtp") {
-        const previous = e.previous.get(s.id);
-        if (previous) {
-          const lost = s.packetsLost - previous.lost,
-            received = s.packetsReceived - previous.received;
-          if (lost > 0 && received >= 0) pressure ||= lost / Math.max(1, lost + received) > 0.08;
+    for (const e of this.pcs.values()) {
+      if (e.pc.connectionState !== "connected") continue;
+      const report = await e.pc.getStats();
+      for (const stat of report.values()) {
+        if (stat.type === "candidate-pair" && stat.state === "succeeded" && stat.nominated) {
+          rtt = Math.max(rtt, stat.currentRoundTripTime || 0);
+          pressure ||= rtt > 0.3;
         }
-        e.previous.set(s.id, { lost: s.packetsLost || 0, received: s.packetsReceived || 0 });
-        pressure ||= (s.fractionLost || 0) > 0.08;
+        if (stat.type === "remote-inbound-rtp") {
+          const previous = e.previous.get(stat.id);
+          if (previous) {
+            const lost = stat.packetsLost - previous.lost,
+              received = stat.packetsReceived - previous.received;
+            if (lost > 0 && received >= 0) pressure ||= lost / Math.max(1, lost + received) > 0.08;
+          }
+          e.previous.set(stat.id, {
+            lost: stat.packetsLost || 0,
+            received: stat.packetsReceived || 0,
+          });
+          pressure ||= (stat.fractionLost || 0) > 0.08;
+        }
       }
     }
-    if (generation !== this.generation) return;
+    if (generation !== this.generation || !this.pcs.size) return;
     await this.applyPressure(pressure);
     this.emit("network", { rtt, pressure });
   }
   async measureActivity() {
-    const entry = this.pcs.get("voice"),
-      generation = this.generation;
-    if (!entry || this.activityBusy) return;
+    const generation = this.generation;
+    if (this.activityBusy || !this.pcs.size) return;
     this.activityBusy = true;
     try {
-      const report = await entry.pc.getStats();
-      if (generation !== this.generation) return;
       let local = false,
         remote = false;
-      for (const stat of report.values()) {
-        if (stat.kind !== "audio") continue;
-        if (stat.type === "media-source") local ||= (stat.audioLevel || 0) > 0.015;
-        if (stat.type === "inbound-rtp") remote ||= (stat.audioLevel || 0) > 0.015;
+      for (const entry of this.pcs.values()) {
+        if (entry.channel !== "voice") continue;
+        const report = await entry.pc.getStats();
+        if (generation !== this.generation) return;
+        for (const stat of report.values()) {
+          if (stat.kind !== "audio") continue;
+          if (stat.type === "media-source") local ||= (stat.audioLevel || 0) > 0.015;
+          if (stat.type === "inbound-rtp") remote ||= (stat.audioLevel || 0) > 0.015;
+        }
       }
       local &&= !!this.localTrack("voice")?.enabled;
       if (local !== this.speaking || remote !== this.remoteSpeaking) {
@@ -602,7 +647,7 @@ export class Call extends EventTarget {
         this.changed();
       }
     } catch {
-      /* No audio-level telemetry means no Speaking indicator. */
+      /* Telemetry is optional. */
     } finally {
       this.activityBusy = false;
     }
@@ -635,19 +680,31 @@ export class Call extends EventTarget {
     }
     this.changed();
   }
-  dropPeer() {
-    this.generation++;
-    for (const e of this.pcs.values()) e.pc.close();
-    this.pcs.clear();
-    this.peer = null;
-    this.speaking = this.remoteSpeaking = false;
-    this.bad = this.good = 0;
-    this.voiceLimited = false;
-    this.voiceBitrate = 64000;
-    this.screenBitrate = 1200000;
-    this.emit("remoteState", { mic: false, screen: false });
-    this.emit("track", { channel: "voice", stream: null });
-    this.emit("track", { channel: "screen", stream: null });
+  dropPeer(id?: string) {
+    const ids = id ? [id] : [...this.members];
+    if (!id) this.generation++;
+    for (const peer of ids) {
+      for (const channel of mediaChannels) {
+        const key = `${peer}:${channel}`;
+        this.pcs.get(key)?.pc.close();
+        this.pcs.delete(key);
+        this.emit("track", { peer, channel, stream: null });
+      }
+      this.members.delete(peer);
+      this.remoteStates.delete(peer);
+      this.emit("remoteState", { peer, mic: false, screen: false });
+    }
+    this.peer = [...this.members][0] || null;
+    if (!this.members.size) {
+      this.speaking = this.remoteSpeaking = false;
+      this.bad = this.good = 0;
+      this.voiceLimited = false;
+      this.voiceBitrate = 64000;
+      this.screenBitrate = 1200000;
+      this.emit("remoteState", { mic: false, screen: false });
+      this.emit("track", { channel: "voice", stream: null });
+      this.emit("track", { channel: "screen", stream: null });
+    }
   }
   leave() {
     ++this.joinRequest;

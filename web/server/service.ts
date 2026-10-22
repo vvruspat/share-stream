@@ -4,8 +4,10 @@ import { resolve, join } from "node:path";
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { PresenceRegistry } from "./presence.js";
+import { Directory, DirectoryError } from "./directory.js";
 import {
   WEB_VERSION,
+  MAX_PARTICIPANTS,
   SIGNAL_VERSION,
   type IceServer,
   type JoinFrame,
@@ -69,6 +71,7 @@ function isSignal(m: unknown): m is EncryptedSignal {
   );
 }
 interface ServiceOptions {
+  dataDir?: string;
   origin?: string | readonly string[];
   turnHost?: string;
   turnSecret?: string;
@@ -80,12 +83,27 @@ interface Member {
   resume: string;
 }
 export function createService({
+  dataDir,
   origin = "http://localhost:48101",
   turnHost = "stream.whitesquirrel.digital",
   turnSecret = "",
   maxRooms = 64,
   clientDir = resolve("dist/client"),
 }: ServiceOptions = {}) {
+  const directory = new Directory(dataDir);
+  const allowedOrigins = typeof origin === "string" ? [origin] : origin;
+  // Only explicit loopback development origins may use a non-Secure cookie.
+  // Never infer this from forwarded headers supplied with a request.
+  const secureBrowserCookies = !allowedOrigins.every((value) => {
+    const url = new URL(value);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  });
+  const browserCookieName = secureBrowserCookies
+    ? "__Host-sharestream-browser"
+    : "sharestream-browser";
+  const browserCookie = (token: string) =>
+    `${browserCookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secureBrowserCookies ? "; Secure" : ""}`;
+  const directoryRates = new Map<string, { start: number; count: number }>();
   const rooms = new Map<string, Map<string, Member>>(),
     joins = new Map<string, { start: number; count: number }>();
   const presence = new PresenceRegistry(Date.now, maxRooms);
@@ -100,6 +118,150 @@ export function createService({
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   };
   const server = createServer(async (req, res) => {
+    if (
+      req.url?.startsWith("/api/accounts/") ||
+      req.url?.startsWith("/api/browser/") ||
+      req.url?.startsWith("/api/rooms")
+    ) {
+      const reply = (status: number, body: unknown, cookie?: string) =>
+        res
+          .writeHead(status, {
+            ...headers,
+            "Content-Type": "application/json",
+            ...(cookie ? { "Set-Cookie": cookie } : {}),
+          })
+          .end(JSON.stringify(body));
+      const browserReply = (result: { cookieToken?: string }) => {
+        const { cookieToken, ...body } = result;
+        reply(200, body, cookieToken ? browserCookie(cookieToken) : undefined);
+      };
+      try {
+        if (req.headers.origin && !allowedOrigins.includes(req.headers.origin))
+          throw new DirectoryError("Origin not allowed.", 403);
+        const auth = [
+          "/api/accounts/register",
+          "/api/accounts/login",
+          "/api/browser/register",
+          "/api/browser/login",
+        ].includes(req.url);
+        const ip = req.socket.remoteAddress || "unknown";
+        // Eight native clients and their browser companions can share one NAT.
+        // Session polling has its own budget alongside the existing room poll.
+        const key = `${auth ? "auth" : req.url.startsWith("/api/browser/") ? "browser" : "rooms"}:${ip}`;
+        const previous = directoryRates.get(key),
+          now = Date.now();
+        const rate =
+          !previous || now - previous.start >= 60000 ? { start: now, count: 0 } : previous;
+        directoryRates.set(key, rate);
+        if (++rate.count > (auth ? 20 : 240))
+          throw new DirectoryError("Too many requests. Try again shortly.", 429);
+        let body: Record<string, unknown> = {};
+        if (req.method === "POST" || req.method === "PATCH") {
+          if (!req.headers["content-type"]?.startsWith("application/json"))
+            throw new DirectoryError("Expected JSON.", 415);
+          req.setEncoding("utf8");
+          let raw = "";
+          for await (const chunk of req) {
+            raw += String(chunk);
+            if (raw.length > 4096) throw new DirectoryError("Request too large.", 413);
+          }
+          const value: unknown = JSON.parse(raw);
+          if (!record(value) || Array.isArray(value)) throw new DirectoryError("Invalid request.");
+          body = value;
+        }
+        const field = (name: string) => (typeof body[name] === "string" ? body[name] : "");
+        const cookies = (req.headers.cookie || "")
+          .split(";")
+          .map((part) => part.trim())
+          .filter((part) => part.startsWith(`${browserCookieName}=`));
+        const browserToken =
+          cookies.length === 1 ? cookies[0].slice(browserCookieName.length + 1) : "";
+        const token = req.headers.authorization?.replace(/^Bearer /, "") || "";
+        const accountId = String(req.headers["x-sharestream-account"] || "");
+        const checkBrowserMutation = () => {
+          if (!allowedOrigins.includes(req.headers.origin || ""))
+            throw new DirectoryError("Origin not allowed.", 403);
+          directory.checkBrowserCsrf(browserToken, String(req.headers["x-csrf-token"] || ""));
+        };
+        if (req.url.startsWith("/api/browser/")) {
+          if (
+            (req.url === "/api/browser/session" && req.method === "GET") ||
+            (req.url === "/api/browser/reset" && req.method === "POST")
+          ) {
+            const reset = req.method === "POST";
+            if (reset && !allowedOrigins.includes(req.headers.origin || ""))
+              throw new DirectoryError("Origin not allowed.", 403);
+            const session = directory.startBrowser(browserToken, reset);
+            reply(
+              200,
+              { accounts: session.accounts, csrf: session.csrf },
+              session.created ? browserCookie(session.token) : undefined,
+            );
+            return;
+          }
+          if (req.method !== "POST") throw new DirectoryError("Not found.", 404);
+          checkBrowserMutation();
+          if (req.url === "/api/browser/login" || req.url === "/api/browser/register")
+            browserReply(
+              await directory.authenticateBrowser(
+                browserToken,
+                body,
+                req.url === "/api/browser/register",
+              ),
+            );
+          else if (req.url === "/api/browser/import")
+            browserReply(directory.importBrowser(browserToken, token));
+          else if (req.url === "/api/browser/logout")
+            reply(200, directory.logoutBrowser(browserToken, field("accountId")));
+          else if (req.url === "/api/browser/handoffs/prepare")
+            reply(
+              200,
+              directory.prepareBrowserHandoff(browserToken, field("ticket"), field("accountId")),
+            );
+          else if (req.url === "/api/browser/handoffs/confirm")
+            browserReply(directory.confirmBrowserHandoff(browserToken, field("handoffId")));
+          else throw new DirectoryError("Not found.", 404);
+          return;
+        }
+        if (auth && req.method === "POST") {
+          reply(200, await directory.authenticate(body, req.url === "/api/accounts/register"));
+          return;
+        }
+        if (req.url === "/api/accounts/browser-handoffs" && req.method === "POST") {
+          reply(200, directory.createBrowserHandoff(token, field("roomId")));
+          return;
+        }
+        if (req.url.startsWith("/api/accounts/") && !token)
+          throw new DirectoryError("Sign in to your account.", 401);
+        if (!token && req.method !== "GET") checkBrowserMutation();
+        const user = token ? directory.user(token) : directory.browserUser(browserToken, accountId);
+        let selected: string | undefined;
+        if (req.url === "/api/accounts/logout" && req.method === "POST") directory.logout(token);
+        else if (req.url === "/api/rooms" && req.method === "GET") {
+          /* List below. */
+        } else if (
+          (req.url === "/api/rooms" || req.url === "/api/rooms/accept") &&
+          req.method === "POST"
+        )
+          selected = directory.save(user, body, req.url === "/api/rooms");
+        else {
+          const match = /^\/api\/rooms\/([a-f0-9]{64})(\/invitations)?$/.exec(req.url);
+          if (!match || (match[2] ? req.method !== "POST" : req.method !== "PATCH"))
+            throw new DirectoryError("Not found.", 404);
+          directory.manage(user, match[1], body, !!match[2]);
+        }
+        reply(200, { user, rooms: directory.rooms(user), selected });
+      } catch (error) {
+        reply(
+          error instanceof DirectoryError ? error.status : error instanceof SyntaxError ? 400 : 500,
+          {
+            error:
+              error instanceof DirectoryError ? error.message : "Could not complete the request.",
+          },
+        );
+      }
+      return;
+    }
     if (req.url === "/api/presence" && req.method === "POST") {
       const allowed = typeof origin === "string" ? [origin] : origin;
       if (req.headers.origin && !allowed.includes(req.headers.origin)) {
@@ -113,7 +275,7 @@ export function createService({
         previous = presenceRates.get(ip);
       const rate = !previous || now - previous.start > 10000 ? { start: now, count: 0 } : previous;
       presenceRates.set(ip, rate);
-      if (++rate.count > 100) {
+      if (++rate.count > 240) {
         res.writeHead(429, headers).end();
         return;
       }
@@ -153,11 +315,11 @@ export function createService({
     // and arbitrary filesystem paths never fall through to the SPA document.
     const path = req.url?.split("?")[0] || "/";
     const isAsset = /^\/assets\/[A-Za-z0-9_.-]+\.(js|css|svg|woff2?)$/.test(path);
-    if (path !== "/" && !isAsset) {
+    if (path !== "/" && path !== "/connect" && !isAsset) {
       res.writeHead(404, headers).end("Not found");
       return;
     }
-    const filename = path === "/" ? "index.html" : path.slice(1);
+    const filename = path === "/" || path === "/connect" ? "index.html" : path.slice(1);
     const contentType = filename.endsWith(".js")
       ? "text/javascript"
       : filename.endsWith(".css")
@@ -188,7 +350,7 @@ export function createService({
     if (
       req.url !== "/signal" ||
       !(typeof origin === "string" ? [origin] : origin).includes(req.headers.origin || "") ||
-      wss.clients.size >= 256
+      wss.clients.size >= 512
     ) {
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
@@ -198,7 +360,7 @@ export function createService({
       .trim();
     const now = Date.now(),
       rate = joins.get(ip);
-    if (rate && now - rate.start < 60000 && rate.count >= 30) {
+    if (rate && now - rate.start < 60000 && rate.count >= 120) {
       socket.destroy();
       return;
     }
@@ -226,7 +388,7 @@ export function createService({
           windowStart = Date.now();
           count = 0;
         }
-        if (++count > 120) throw new Error("Rate limit");
+        if (++count > 400) throw new Error("Rate limit");
         const m: unknown = JSON.parse(
           (Buffer.isBuffer(raw)
             ? raw
@@ -259,8 +421,8 @@ export function createService({
           // authenticates with the same private participant credential. Replace
           // its old transport rather than consuming the partner's room slot.
           const previous = members && [...members].find(([, entry]) => sameCredential(entry));
-          if (!previous && members && members.size >= 2) {
-            send(ws, { type: "error", message: "This room already has two people." });
+          if (!previous && members && members.size >= MAX_PARTICIPANTS) {
+            send(ws, { type: "error", message: `This room is full (${MAX_PARTICIPANTS} people).` });
             ws.close(4003);
             return;
           }
@@ -331,6 +493,8 @@ export function createService({
     for (const [ip, rate] of joins) if (Date.now() - rate.start > 60000) joins.delete(ip);
     for (const [ip, rate] of presenceRates)
       if (Date.now() - rate.start > 10000) presenceRates.delete(ip);
+    for (const [key, rate] of directoryRates)
+      if (Date.now() - rate.start > 60000) directoryRates.delete(key);
     presence.prune();
   }, 15000);
   return {
@@ -343,6 +507,7 @@ export function createService({
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
+      directory.close();
     },
   };
 }

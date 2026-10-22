@@ -110,3 +110,31 @@ test("headphone capture rejects processing-on settings and releases the stream",
   assert.equal(call.micStream, null);
   assert.equal(call.micBusy, false);
 });
+
+test("group replay protection is independent for each encrypted sender", async () => {
+  const call = new Call({ url: "ws://unused" });
+  call.keys = await roomKeys("1".repeat(32));
+  const peers = ["2".repeat(32), "3".repeat(32)];
+  peers.forEach((id) => call.members.add(id));
+  const messages: string[] = [];
+  call.on("remoteState", (state) => {
+    if (state.peer) messages.push(state.peer);
+  });
+  const packet = async (peer: string, seq: number): Promise<IncomingSignal> => ({
+    ...(await seal(call.keys.key, call.keys.room, peer, call.id, "control", seq, {
+      type: "media",
+      mic: true,
+      screen: false,
+    })),
+    from: peer,
+  });
+  for (const peer of peers) await call.message(await packet(peer, 1));
+  assert.deepEqual(messages, peers);
+  await call.message(await packet(peers[0], 1));
+  assert.equal(messages.length, 2);
+  await call.message({ ...(await packet(peers[0], 20)), from: peers[1] });
+  await call.message(await packet(peers[1], 2));
+  assert.equal(messages.length, 3);
+  call.dropPeer(peers[0]);
+  assert.equal(call.members.has(peers[1]), true);
+});

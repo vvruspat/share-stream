@@ -1,26 +1,32 @@
 # Session interface
 
-The native plugin owns invitations and the music connection. Voice & screen
-opens the browser in that existing room. The browser does not generate rooms,
-show a room-code field, or provide a second invitation workflow. Opening the
-browser never requests microphone or screen permission.
+The native plugin owns the music connection. Native and browser clients share
+server accounts and a persistent named-room directory. Both can create rooms,
+save invitations, rename owned rooms and invite registered users. Voice & screen
+opens the browser in the selected native room. Opening the browser never requests
+microphone or screen permission. See [accounts and saved rooms](rooms.md).
 
 Native introductions use `stream.whitesquirrel.digital:48100/UDP`. New invites
 carry this hostname. Saved projects and legacy invitations containing the former
 built-in relay IP migrate to this domain; custom relay addresses remain intact.
 The network worker resolves it through DNS before the existing UDP handshake.
 
-The transport still supports two people. There is one music sender and one
-listener, plus two independent browser media transports. Audio codecs, packet
-formats, encryption, congestion priorities and jitter-buffer behavior are
-unchanged by the interface update.
+Rooms support up to eight people: one music sender and up to seven listeners.
+Each listener has an independent authenticated P2P path, with targeted relay as
+fallback. Browser voice and screen form independent WebRTC links for every pair.
+Audio payload formats and encryption stay compatible; targeted relay adds a
+routing envelope which the server strips before delivery. Congestion priorities
+and receiver jitter-buffer behavior remain independent of room membership.
 
 ## Native controls
 
-Create session starts the selected music role. Join session accepts the
-clipboard invitation, or asks for one when the clipboard is not valid. The
-active session shows Copy invite and Leave session. Changing Send audio / Listen
-keeps the room and reconnects with the selected role.
+The compact editor groups controls around the selected room. The profile menu
+contains account switching, login and logout. The room picker and contextual menu
+contain creation, invitation import, renaming and sharing. These management
+actions do not start audio. One main action explicitly starts or stops the
+selected music role; a role change cannot silently start sending. Standalone
+remains a receiver. **Voice & screen** is a separate visible action for opening
+the browser, using the signed-in handoff described in [rooms](rooms.md).
 
 Local monitor displays one slider bound to the selected role's existing host
 parameter. Both per-role settings remain saved in DAW state. The engine's
@@ -37,19 +43,25 @@ the fixed-size editor. The update menu remains a small footer action.
 
 ## Browser controls
 
-The stream contains an always-visible toolbar at bottom right with three
-44 px controls: microphone, screen sharing and fullscreen. The fullscreen API
+The browser has a room sidebar and profile menu, a room header with invitation
+and contextual actions, and a compact call toolbar. Creating, renaming,
+inviting and logging in happen in focused dialogs. Selecting a room previews it
+without enabling capture; joining uses a separate action. When no screen is
+being shared, the stage shows participants instead of a large empty screen.
+
+The call toolbar keeps microphone, screen sharing, sound and departure actions
+available. Fullscreen remains available for the stage. The fullscreen API
 target is the entire stage, including controls, tooltips and media errors.
 `fullscreenchange` synchronizes the button after external exits, including
 Escape. Unsupported fullscreen reports an error instead of simulating it.
 
-Voice settings and Participants use Radix disclosures, closed initially. Their
-contents stay mounted to preserve device selections. Voice playback lives
-outside the disclosure, so collapsing it never interrupts audio. Screen video
+Sound settings are available on demand. Their contents stay mounted to preserve
+device selections. Voice playback lives outside the settings panel, so closing
+it never interrupts audio. Screen video
 uses `object-fit: contain`; the local screen fills the stage when there is no
 remote screen, otherwise it becomes a small preview.
 
-The browser's always-visible Local monitor uses the native fader design: two
+The browser's sound panel retains the native fader design: two
 L/R signal tracks, a separate narrow gain thumb, a dB gain readout and post-gain
 peak in dBFS. Both controls use -60..+6 dB in 0.1 dB steps, exact mute at -60 dB,
 double-click reset to 0 dB and a 20 ms linear gain ramp. Browser monitoring changes
@@ -70,10 +82,17 @@ A separate HTTPS `/api/presence` control endpoint combines native and browser
 connections. It carries no music or screen data and cannot stop the audio
 engine. Native registration runs on its own worker; browser polling runs once
 per second. Source records expire after eight seconds without a heartbeat.
-Room hashes match the existing browser signaling room derivation. The service
-never receives the room encryption key and never returns participant credentials.
+Room hashes match the existing browser signaling room derivation. Presence and signaling receive only the room hash and never return participant
+credentials to peers. The separate authenticated saved-room directory stores room
+codes encrypted at rest and can decrypt them for account members.
 
-A per-installation random key is stored alongside native application settings
+For signed-in members, the directory supplies one stable private participant
+credential per account/room, shared across native and browser clients. Account
+handoff and membership resolution finish before the call is mounted, so a
+previous browser account cannot replace the identity supplied by the app.
+Browser account grants use HttpOnly cookies and per-tab account selection; the
+normal call screen does not display a sign-in form. For guests,
+a per-installation random key is stored alongside native application settings
 in `Share Stream/participant.key`. It derives a different private credential for
 each room. Native instances in the same installation/room and a browser opened
 from Voice & screen share this credential. Copy invite omits it. The browser
@@ -87,8 +106,8 @@ replaces that participant's old browser transport and stops its capture, instead
 of consuming a second person's slot. Each transport still gets a fresh public
 signaling ID and encryption sequence, so the partner can accept its new messages
 without weakening replay checks. The replaced tab does not auto-reconnect. Native
-presence does not occupy a browser signaling slot, and two distinct people can
-each use music, voice and screen in the same room. A third person is still rejected.
+presence does not occupy a browser signaling slot, and up to eight distinct people can
+each use music, voice and screen in the same room. A ninth person is rejected.
 The versioned chat handshake asks older pages to reload before reserving a slot;
 old per-page sessions therefore cannot keep blocking the partner after deployment.
 

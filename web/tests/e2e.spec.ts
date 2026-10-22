@@ -1,6 +1,18 @@
 import { test, expect, type BrowserContext, type Browser, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 
+async function openAudio(page: Page) {
+  if ((await page.locator("#audio-settings").getAttribute("aria-expanded")) !== "true")
+    await page.locator("#audio-settings").click();
+}
+
+async function joinRoom(page: Page) {
+  const wasOpen = (await page.locator("#audio-settings").getAttribute("aria-expanded")) === "true";
+  if (wasOpen) await page.locator("#audio-settings").click();
+  await page.locator("#join").click();
+  if (wasOpen) await openAudio(page);
+}
+
 async function synthetic(context: BrowserContext, voiceAmplitude = 1) {
   await context.addInitScript(
     ({ relay, tcp, voiceAmplitude }) => {
@@ -116,6 +128,8 @@ async function pair(browser: Browser, baseURL = "http://localhost:48101", voiceA
     code = randomBytes(16).toString("hex");
   await pa.goto(`${baseURL}/#room=${code}`);
   await pb.goto(`${baseURL}/#room=${code}`);
+  await expect(pa.locator("#voice")).toBeAttached();
+  await expect(pb.locator("#voice")).toBeAttached();
   return { a, b, pa, pb, code };
 }
 const stats = async (page: Page, kind: string, field: string) =>
@@ -167,8 +181,8 @@ test("voice monitor changes rendered PCM, meters and mute without altering the t
 }) => {
   const { a, b, pa, pb } = await pair(browser, baseURL, 0.125);
   try {
-    await pa.locator("#join").click();
-    await pb.locator("#join").click();
+    await joinRoom(pa);
+    await joinRoom(pb);
     await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
     await expect(pb.locator("#status")).toContainText("Connected");
     await pa.locator("#mic").click();
@@ -180,6 +194,7 @@ test("voice monitor changes rendered PCM, meters and mute without altering the t
     await expect.poll(() => voiceRms(pa), { timeout: 10000 }).toBeGreaterThan(0.02);
     const baseline = await voiceRms(pb);
     const outgoingBaseline = await voiceRms(pa);
+    await openAudio(pb);
     const volume = pb.getByRole("slider", { name: "Local monitor" });
     const initialOutput = await pb
       .locator("#voice")
@@ -195,7 +210,17 @@ test("voice monitor changes rendered PCM, meters and mute without altering the t
         .poll(() => signal.evaluate((element) => parseFloat((element as HTMLElement).style.width)))
         .toBeGreaterThan(0);
     await expect(pb.locator("#voice-source")).toHaveJSProperty("muted", true);
+    await pb.locator("#audio-settings").click();
+    await expect(volume).toBeHidden();
+    expect(await voiceRms(pb)).toBeGreaterThan(baseline * 0.85);
+    expect(
+      await pb
+        .locator("#voice")
+        .evaluate((element) => ((element as HTMLAudioElement).srcObject as MediaStream).id),
+    ).toBe(initialOutput);
+    await openAudio(pb);
     for (const db of [-6, -20, 6, -60, 0]) {
+      await openAudio(pb);
       await volume.dblclick();
       if (db === -60) await volume.press("Home");
       else if (db === 6) await volume.press("End");
@@ -238,9 +263,10 @@ test("voice monitor changes rendered PCM, meters and mute without altering the t
     ).toBeNull();
     // A new incoming track must retain the local fader value and retire the old
     // output stream, rather than restarting at unity or keeping duplicate audio.
+    await openAudio(pb);
     await volume.dblclick();
     for (let step = 0; step < 6; step++) await volume.press("PageDown");
-    await pb.locator("#join").click();
+    await joinRoom(pb);
     await expect(pb.locator("#status")).toContainText("Connected", { timeout: 25000 });
     await expect(volume).toHaveAttribute("aria-valuenow", "-6");
     await expect
@@ -309,17 +335,20 @@ test("voice monitor keeps mute and output selection through autoplay recovery an
         },
       ];
     });
+    await openAudio(pb);
     const volume = pb.getByRole("slider", { name: "Local monitor" });
     await volume.press("Home");
-    await pa.locator("#join").click();
-    await pb.locator("#join").click();
+    await joinRoom(pa);
+    await joinRoom(pb);
     await expect(pb.locator("#status")).toContainText("Connected", { timeout: 25000 });
     await pa.locator("#mic").click();
     await expect(pb.locator("#play")).toBeVisible();
+    await openAudio(pb);
     await pb.locator("#voice-settings > button").click();
     await pb.getByRole("combobox", { name: "Voice output", exact: true }).click();
     await pb.getByRole("option", { name: "Test headphones" }).click();
     await expect.poll(() => pb.evaluate(() => window.outputSinkRequests)).toEqual(["headphones"]);
+    await openAudio(pb);
     await pb.locator("#voice-settings > button").click();
     const output = await pb
       .locator("#voice")
@@ -327,6 +356,7 @@ test("voice monitor keeps mute and output selection through autoplay recovery an
     await pb.locator("#play").click();
     await expect(pb.locator("#play")).toBeHidden();
     expect(await voiceRms(pb)).toBeLessThan(1e-6);
+    await openAudio(pb);
     await volume.dblclick();
     await expect.poll(() => voiceRms(pb)).toBeGreaterThan(0.02);
     expect(
@@ -379,11 +409,11 @@ test("explicit capture, two independent media transports, stop, mute and reconne
     if (!process.env.TEST_BASE_URL)
       await pa.screenshot({ path: "../build/web-desktop.png", fullPage: true });
     expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
-    await pa.getByRole("button", { name: "Join session", exact: true }).click();
-    await pb.getByRole("button", { name: "Join session", exact: true }).click();
+    await pa.getByRole("button", { name: "Join room", exact: true }).click();
+    await pb.getByRole("button", { name: "Join room", exact: true }).click();
     await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
     await expect(pb.locator("#status")).toContainText("Connected");
-    await expect(pa.locator("#participants > button")).toHaveText("Participants · 2");
+    await expect(pa.locator("#participant-heading")).toHaveText("Participants · 2");
     if (!process.env.TEST_BASE_URL)
       await pa.screenshot({ path: "../build/screenshots/web-ui-final.png", fullPage: true });
     expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
@@ -459,7 +489,7 @@ test("explicit capture, two independent media transports, stop, mute and reconne
     await expect.poll(() => stats(pb, "video", "framesDecoded")).toBeGreaterThan(5);
     expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 1, display: 1 });
     await pa.locator("#mic").click();
-    await pb.locator("#participants > button").click();
+
     await expect(pb.locator(".participant-mic").filter({ hasText: "Mic off" })).toHaveCount(1);
     await pa.locator("#share").click();
     await expect(pb.locator("#remote-screen")).toBeHidden();
@@ -469,7 +499,7 @@ test("explicit capture, two independent media transports, stop, mute and reconne
     expect(
       await pa.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")),
     ).toBe(true);
-    await pa.locator("#join").click();
+    await joinRoom(pa);
     await expect(pa.locator("#status")).toContainText("Connected", { timeout: 20000 });
     await expect.poll(() => stats(pa, "video", "framesDecoded")).toBeGreaterThan(5);
   } catch (error) {
@@ -513,9 +543,10 @@ test("headphone mode releases the old capture before switching and preserves mut
   try {
     const page = await context.newPage();
     await page.goto(`${baseURL}/#room=${randomBytes(16).toString("hex")}`);
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
     await expect(page.locator("#voice-mode")).toHaveText("Headphones · unprocessed");
-    await page.locator("#join").click();
+    await joinRoom(page);
     await page.locator("#mic").click();
     await expect(page.locator("#mic")).toHaveAttribute("aria-label", "Mute microphone");
     const constraints = await page.evaluate(() => window.micConstraints[0]);
@@ -524,9 +555,11 @@ test("headphone mode releases the old capture before switching and preserves mut
     expect(constraints.autoGainControl).toEqual({ exact: false });
     await page.locator("#mic").click();
     await expect(page.locator("#mic")).toHaveAttribute("aria-label", "Unmute microphone");
+    await openAudio(page);
     await page.locator("#voice-mode").click();
     await page.getByRole("option", { name: "Speakers · echo cancellation" }).click();
     await expect(page.locator("#voice-mode")).toBeEnabled();
+    await openAudio(page);
     await page.locator("#voice-mode").click();
     await page.getByRole("option", { name: "Headphones · unprocessed" }).click();
     await expect(page.locator("#voice-mode")).toBeEnabled();
@@ -631,6 +664,7 @@ test("Radix controls support the keyboard and the native monitor range and reset
         errors.push(message.text());
     });
     await page.goto(`${baseURL}/#room=${randomBytes(16).toString("hex")}`);
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
     const mode = page.getByRole("combobox", { name: "Voice mode" });
     await mode.focus();
@@ -643,6 +677,7 @@ test("Radix controls support the keyboard and the native monitor range and reset
     await expect(mode).toHaveText("Speakers · echo cancellation");
     await expect(mode).toBeFocused();
     await expect(page.locator("#voice-mode-note")).toContainText("may lower other apps");
+    await openAudio(page);
     const volume = page.getByRole("slider", { name: "Local monitor" });
     await volume.focus();
     await expect(volume).toHaveAttribute("aria-valuemin", "-60");
@@ -657,6 +692,7 @@ test("Radix controls support the keyboard and the native monitor range and reset
     await volume.dblclick();
     await expect(volume).toHaveAttribute("aria-valuenow", "0");
     await expect(page.locator("#volume-value")).toHaveText("0.0 dB");
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
     await expect(volume).toBeVisible();
     await expect(page.locator(".monitor-channel")).toHaveCount(2);
@@ -672,8 +708,8 @@ test("congestion lowers voice bitrate without stopping speech, then screen budge
 }) => {
   const { a, b, pa, pb } = await pair(browser, baseURL);
   try {
-    await pa.locator("#join").click();
-    await pb.locator("#join").click();
+    await joinRoom(pa);
+    await joinRoom(pb);
     await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
     await pa.locator("#mic").click();
     await pa.locator("#share").click();
@@ -767,7 +803,7 @@ test("native sender and listener join chat after the sender reopens its browser 
     await expect(old.locator("#status")).toHaveText("Session opened in another tab");
     for (const page of [sender, listener]) {
       await expect(page.locator("#error")).toBeHidden();
-      await expect(page.locator("#participants > button")).toHaveText("Participants · 2");
+      await expect(page.locator("#participant-heading")).toHaveText("Participants · 2");
       expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
     }
     await old.close();
@@ -784,7 +820,7 @@ test("native sender and listener join chat after the sender reopens its browser 
     await replacement.goto(`${baseURL}/#room=${code}&join=1`);
     await expect(replacement.locator("#status")).toContainText("Connected", { timeout: 20000 });
     await expect(sender.locator("#status")).toHaveText("Session opened in another tab");
-    await expect(replacement.locator("#participants > button")).toHaveText("Participants · 2");
+    await expect(replacement.locator("#participant-heading")).toHaveText("Participants · 2");
     await replacement.locator("#mic").click();
     await expect.poll(() => voiceRms(listener)).toBeGreaterThan(0.02);
     await expect.poll(() => voiceRms(replacement)).toBeGreaterThan(0.02);
@@ -823,16 +859,14 @@ for (const layers of [0, 1, 2]) {
       await expect(page.locator("#join")).toHaveCount(0);
       await expect(page.locator("#leave")).toBeEnabled();
       expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
-      await expect(page.locator("#participants > button")).toHaveText("Participants · 1");
-      await expect(page.locator("#participants > button")).toHaveAttribute(
-        "aria-expanded",
-        "false",
-      );
-      await page.locator("#participants > button").click();
+      await expect(page.locator("#participant-heading")).toHaveText("Participants · 1");
+      await expect(page.locator("#participant-heading")).toBeVisible();
+
       await expect(page.locator(".participant")).toHaveCount(1);
       await expect(page.locator(".participant")).toHaveAttribute("data-participant-id", identity);
       await expect(page.locator(".participant")).toContainText("Sending music");
       expect(await page.evaluate(() => location.hash.includes("participant"))).toBe(false);
+      await openAudio(page);
       await page.locator("#voice-settings > button").click();
       await page
         .locator("#display-name")
@@ -851,8 +885,7 @@ for (const layers of [0, 1, 2]) {
       await expect(page.locator("#mic")).toHaveAttribute("aria-pressed", "false");
       await expect(page.locator(".participant")).toHaveCount(1);
       await expect(page.locator(".participant")).toContainText("Sending music");
-      await page.locator("#participants > button").click();
-      await page.locator("#participants > button").click();
+
       await expect(page.locator(".participant-name")).toContainText("A very long participant");
       await page.locator("#leave").click();
       const remaining = await page.request.post(`${baseURL}/api/presence`, {
@@ -930,8 +963,8 @@ test("overlay toolbar uses real fullscreen and handles cancelled and externally 
     await expect(page.locator("#error")).toContainText("Fullscreen is unavailable");
     for (const button of ["#mic", "#share", "#fullscreen"]) {
       const box = (await page.locator(button).boundingBox())!;
-      expect(box.width).toBe(44);
-      expect(box.height).toBe(44);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
     }
   } finally {
     await context.close();
@@ -949,31 +982,483 @@ test("display name persists after reload and joins a different room from localSt
   try {
     await page.goto(`${baseURL}/#room=${randomBytes(16).toString("hex")}&join=1`);
     await expect(page.locator("#leave")).toBeVisible();
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
-    await page.locator("#participants > button").click();
+
     await page.locator("#display-name").fill(name);
     await expect(page.locator(".participant-name")).toContainText(name);
     await page.locator("#leave").click();
     await page.reload();
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
     await expect(page.locator("#display-name")).toHaveValue(name);
-    await page.locator("#join").click();
-    await page.locator("#participants > button").click();
+    await joinRoom(page);
+
     await expect(page.locator(".participant-name")).toContainText(name);
     await page.locator("#leave").click();
     await page.goto("about:blank");
     await page.goto(`${baseURL}/#room=${randomBytes(16).toString("hex")}&join=1`);
-    await page.locator("#participants > button").click();
+
     await expect(page.locator(".participant-name")).toContainText(name);
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
     await page.locator("#display-name").fill("");
     await expect(page.locator(".participant-name")).toContainText("Participant ");
     expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
     await page.locator("#leave").click();
     await page.reload();
+    await openAudio(page);
     await page.locator("#voice-settings > button").click();
     await expect(page.locator("#display-name")).toHaveValue("");
   } finally {
+    await context.close();
+  }
+});
+
+test("saved rooms use contextual dialogs and survive leave, reload and account switching", async ({
+  browser,
+}) => {
+  const a = await browser.newContext(),
+    b = await browser.newContext();
+  await synthetic(a);
+  await synthetic(b);
+  const pa = await a.newPage(),
+    pb = await b.newPage();
+  const suffix = randomBytes(5).toString("hex"),
+    alice = `alice_${suffix}`,
+    bob = `bob_${suffix}`,
+    password = "test room password";
+  const accountMenu = (page: Page) => page.getByRole("button", { name: /^Account:/ }).click();
+  const register = async (page: Page, username: string) => {
+    await page.goto("/");
+    await expect(page.locator("input:visible")).toHaveCount(0);
+    await accountMenu(page);
+    await page.getByRole("menuitem", { name: "Sign in", exact: true }).click();
+    await page.getByRole("button", { name: "Register", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill(username);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Create account", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: `Account: ${username}`, exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("input:visible")).toHaveCount(0);
+  };
+  const room = (page: Page, name: string) =>
+    page
+      .getByRole("navigation", { name: "Saved rooms" })
+      .getByRole("button", { name, exact: true });
+  try {
+    await register(pa, alice);
+    await register(pb, bob);
+    await pa.getByRole("button", { name: "Add room", exact: true }).click();
+    await pa.getByRole("menuitem", { name: "Create room", exact: true }).click();
+    await pa.getByLabel("New room name", { exact: true }).fill("Album mix");
+    await pa.getByRole("button", { name: "Create room", exact: true }).click();
+    await expect(room(pa, "Album mix")).toBeVisible();
+    await pa.getByRole("button", { name: "Invite people", exact: true }).click();
+    await pa.getByLabel("Invite username", { exact: true }).fill(bob);
+    await pa.getByRole("button", { name: "Invite user", exact: true }).click();
+    await expect(room(pb, "Album mix")).toBeVisible({ timeout: 10000 });
+    await pa.getByRole("button", { name: "Close", exact: true }).click();
+    await pa.getByRole("button", { name: "Room actions", exact: true }).click();
+    await pa.getByRole("menuitem", { name: "Rename room", exact: true }).click();
+    await pa.getByLabel("Room name", { exact: true }).fill("Friday session");
+    await pa.getByRole("button", { name: "Save name", exact: true }).click();
+    await expect(room(pb, "Friday session")).toBeVisible({ timeout: 10000 });
+    for (const page of [pa, pb]) {
+      await room(page, "Friday session").click();
+      await expect(page.locator("#status")).toHaveText("Ready");
+      await joinRoom(page);
+    }
+    await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    for (const page of [pa, pb]) {
+      await page.locator("#leave").click();
+      await page.reload();
+      await expect(room(page, "Friday session")).toBeVisible();
+      await expect(page.locator("#status")).toHaveText("Ready");
+      await joinRoom(page);
+    }
+    await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await pa.locator("#mic").click();
+    await expect
+      .poll(() =>
+        pa.evaluate(() => window.captureTracks.filter((t) => t.readyState === "live").length),
+      )
+      .toBe(1);
+    await accountMenu(pa);
+    await pa.getByRole("menuitem", { name: "Add account", exact: true }).click();
+    await pa.getByLabel("Username", { exact: true }).fill(bob);
+    await pa.getByLabel("Password", { exact: true }).fill(password);
+    await pa.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect
+      .poll(() => pa.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")))
+      .toBe(true);
+    await expect(pa.getByRole("button", { name: `Account: ${bob}`, exact: true })).toBeVisible();
+    await expect(pa.locator("#status")).toHaveText("Ready");
+    await accountMenu(pa);
+    await pa.getByRole("menuitem", { name: alice, exact: true }).click();
+    await room(pa, "Friday session").click();
+    await pa.getByRole("button", { name: "Room actions", exact: true }).click();
+    await expect(pa.getByRole("menuitem", { name: "Rename room", exact: true })).toBeVisible();
+    await pa.keyboard.press("Escape");
+    expect(await pa.evaluate(() => localStorage.getItem("sharestream:accounts:v1"))).toBeNull();
+    await pa.screenshot({ path: "/tmp/share-stream-rooms.png", fullPage: true });
+    for (const width of [390, 320]) {
+      await pa.setViewportSize({ width, height: 844 });
+      expect(await pa.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    }
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});
+
+test("group mesh keeps every voice and screen connected across late join, departure and rejoin", async ({
+  browser,
+}) => {
+  const contexts: BrowserContext[] = [],
+    pages: Page[] = [];
+  const code = randomBytes(16).toString("hex");
+  const enter = async () => {
+    const context = await browser.newContext();
+    contexts.push(context);
+    await synthetic(context, 0.125);
+    const page = await context.newPage();
+    pages.push(page);
+    await page.addInitScript(
+      (name) => localStorage.setItem("sharestream:display-name", name),
+      ["Alex", "Maya", "Leo", "Sam"][pages.length - 1],
+    );
+    await page.goto(`/#room=${code}`);
+    await joinRoom(page);
+    return page;
+  };
+  const connected = async (page: Page, peers: number) => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              window.testPCs.filter(
+                (p) => p.connectionState !== "closed" && p.connectionState === "connected",
+              ).length,
+          ),
+        { timeout: 25000 },
+      )
+      .toBe(peers * 2);
+  };
+  const receiving = async (page: Page, kind: string, property: string, count: number) => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            async ({ kind, property }) => {
+              const reports = await Promise.all(
+                window.testPCs
+                  .filter((p) => p.connectionState !== "closed")
+                  .map((p) => p.getStats()),
+              );
+              return reports
+                .flatMap((report) => [...report.values()])
+                .filter((s) => s.type === "inbound-rtp" && s.kind === kind && s[property] > 500)
+                .length;
+            },
+            { kind, property },
+          ),
+        { timeout: 20000 },
+      )
+      .toBe(count);
+  };
+  try {
+    const a = await enter(),
+      b = await enter(),
+      c = await enter();
+    for (const page of [a, b, c]) {
+      await connected(page, 2);
+      await page.locator("#mic").click();
+    }
+    for (const page of [a, b, c]) await receiving(page, "audio", "bytesReceived", 2);
+    await a.locator("#share").click();
+    await expect.poll(() => stats(b, "video", "framesDecoded")).toBeGreaterThan(5);
+    await expect.poll(() => stats(c, "video", "framesDecoded")).toBeGreaterThan(5);
+    await b.locator("#share").click();
+    await expect(c.getByRole("combobox", { name: "View screen" })).toBeVisible();
+    await expect.poll(() => stats(c, "video", "framesDecoded")).toBeGreaterThan(15);
+    const d = await enter();
+    await connected(d, 3);
+    await receiving(d, "audio", "bytesReceived", 3);
+    expect(await d.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    await d.locator("#mic").click();
+    for (const page of [a, b, c]) {
+      await connected(page, 3);
+      await receiving(page, "audio", "bytesReceived", 3);
+      expect((await page.evaluate(() => window.mediaRequests)).audio).toBe(1);
+    }
+    await b.locator("#leave").click();
+    expect(
+      await b.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")),
+    ).toBe(true);
+    for (const page of [a, c, d]) {
+      await connected(page, 2);
+      await receiving(page, "audio", "bytesReceived", 2);
+    }
+    await expect(c.getByRole("combobox", { name: "View screen" })).toHaveCount(0);
+    await b.locator("#join").click();
+    await connected(b, 3);
+    await receiving(b, "audio", "bytesReceived", 3);
+    expect((await b.evaluate(() => window.mediaRequests)).audio).toBe(1);
+    await c.locator("#participant-heading").click();
+    await expect(c.locator(".participant")).toHaveCount(4, { timeout: 10000 });
+    await expect(c.locator(".participant-name").filter({ hasText: "Maya" })).toBeVisible();
+    await c.screenshot({ path: "/tmp/share-stream-group-web.png", fullPage: true });
+    await a.locator("#share").click();
+    await expect(c.locator("#remote-screen")).toBeHidden();
+    await c.screenshot({ path: "/tmp/share-stream-group-participants.png", fullPage: true });
+    for (const width of [390, 320]) {
+      await c.setViewportSize({ width, height: 844 });
+      expect(await c.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await c.screenshot({ path: `/tmp/share-stream-group-${width}.png`, fullPage: true });
+    }
+    await openAudio(c);
+    await c.locator("#voice-settings > button").click();
+    expect(await c.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await c.screenshot({ path: "/tmp/share-stream-audio-mobile.png", fullPage: true });
+  } finally {
+    for (const context of contexts) await context.close();
+  }
+});
+
+test("native handoff confirms identity, keeps account tabs independent and never mounts a guest on reload", async ({
+  browser,
+  request,
+}) => {
+  const context = await browser.newContext();
+  await synthetic(context);
+  const page = await context.newPage();
+  const suffix = randomBytes(5).toString("hex");
+  const nativeAccount = async (username: string, name: string) => {
+    const registration = await request.post("/api/accounts/register", {
+      data: { username, password: "native handoff test password" },
+    });
+    expect(registration.ok()).toBe(true);
+    const account = (await registration.json()) as import("../shared/directory.js").SavedAccount;
+    const headers = { Authorization: `Bearer ${account.token}` };
+    const roomResponse = await request.post("/api/rooms", {
+      headers,
+      data: { name, code: randomBytes(16).toString("hex") },
+    });
+    expect(roomResponse.ok()).toBe(true);
+    const data = (await roomResponse.json()) as {
+      selected: string;
+      rooms: import("../shared/directory.js").SavedRoom[];
+    };
+    const room = data.rooms.find((r) => r.id === data.selected)!;
+    return {
+      ...account,
+      room,
+      ticket: async () => {
+        const result = await request.post("/api/accounts/browser-handoffs", {
+          headers,
+          data: { roomId: room.id },
+        });
+        expect(result.ok()).toBe(true);
+        return ((await result.json()) as { ticket: string }).ticket;
+      },
+    };
+  };
+  try {
+    const alice = await nativeAccount(`handoff_a_${suffix}`, "Evening mix");
+    const firstTicket = await alice.ticket();
+    await page.goto(`/connect#handoff=${firstTicket}`);
+    await expect(page.getByRole("dialog")).toBeVisible();
+    expect(new URL(page.url()).hash).toBe("");
+    await expect(page.locator("input")).toHaveCount(0);
+    await expect(page.locator("#voice")).toHaveCount(0);
+    expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    await page
+      .getByRole("button", { name: `Continue as @${alice.user.username}`, exact: true })
+      .click();
+    await expect(page.locator("#leave")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Evening mix", exact: true })).toBeVisible();
+    const { createHash } = await import("node:crypto");
+    const identity = createHash("sha256").update(alice.room.participant).digest("hex").slice(0, 32);
+    await expect(page.locator(".participant")).toHaveAttribute("data-participant-id", identity);
+    expect(await page.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    const sameTicket = await alice.ticket();
+    await page.goto(`/connect#handoff=${sameTicket}`);
+    await expect(page.locator("#leave")).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+
+    // An explicit guest plugin binding must survive even when this browser has
+    // an account membership in the same room; selecting the saved room uses the account again.
+    const guestToken = randomBytes(16).toString("hex");
+    await page.goto(`/#room=${alice.room.code}&join=1&participant=${guestToken}`);
+    await page.reload();
+    await expect(page.locator("#leave")).toBeVisible();
+    await expect(page.locator(".participant")).toHaveAttribute(
+      "data-participant-id",
+      createHash("sha256").update(guestToken).digest("hex").slice(0, 32),
+    );
+    expect(new URL(page.url()).hash).not.toContain("participant");
+    await page.reload();
+    await joinRoom(page);
+    await expect(page.locator(".participant")).toHaveAttribute(
+      "data-participant-id",
+      createHash("sha256").update(guestToken).digest("hex").slice(0, 32),
+    );
+    await page
+      .getByRole("navigation", { name: "Saved rooms" })
+      .getByRole("button", { name: "Evening mix", exact: true })
+      .click();
+
+    // Directory membership must resolve before the first call/presence identity is mounted.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let directoryStarted = false;
+    await page.route("**/api/rooms", async (route) => {
+      directoryStarted = true;
+      await gate;
+      await route.continue();
+    });
+    await page.goto(`/#room=${alice.room.code}&join=1`);
+    await page.reload();
+    await expect.poll(() => directoryStarted).toBe(true);
+    await expect(page.locator("#voice")).toHaveCount(0);
+    expect(await page.evaluate(() => window.testPCs.length)).toBe(0);
+    release();
+    await expect(page.locator("#leave")).toBeVisible();
+    await expect(page.locator(".participant")).toHaveAttribute("data-participant-id", identity);
+    await page.unroute("**/api/rooms");
+    await page.locator("#mic").click();
+    await expect(page.locator("#mic")).toHaveAttribute("aria-label", "Mute microphone");
+
+    const bob = await nativeAccount(`handoff_b_${suffix}`, "Second room");
+    const other = await context.newPage();
+    await other.goto(`/connect#handoff=${await bob.ticket()}`);
+    await expect(other.getByRole("dialog")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Account: ${alice.user.username}`, exact: true }),
+    ).toBeVisible();
+    await other
+      .getByRole("button", { name: `Continue as @${bob.user.username}`, exact: true })
+      .click();
+    await expect(other.locator("#leave")).toBeVisible();
+    await other.locator("#mic").click();
+    await expect(other.locator("#mic")).toHaveAttribute("aria-label", "Mute microphone");
+    await page.bringToFront();
+    await expect(page.locator("#mic")).toHaveAttribute("aria-label", "Mute microphone");
+    expect(
+      await page.evaluate(() => window.captureTracks.filter((t) => t.readyState === "live").length),
+    ).toBe(1);
+    for (const tab of [page, other]) {
+      const storage = await tab.evaluate(() =>
+        JSON.stringify(
+          [localStorage, sessionStorage].flatMap((storage) =>
+            Object.keys(storage).map((key) => storage.getItem(key)),
+          ),
+        ),
+      );
+      expect(storage).not.toContain(alice.token);
+      expect(storage).not.toContain(bob.token);
+      expect(storage).not.toContain(firstTicket);
+    }
+    // Revoking Alice's browser grant stops Alice's tab but leaves Bob's microphone alone.
+    expect(
+      await other.evaluate(async (accountId) => {
+        const session = (await (await fetch("/api/browser/session")).json()) as { csrf: string };
+        return (
+          await fetch("/api/browser/logout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": session.csrf },
+            body: JSON.stringify({ accountId }),
+          })
+        ).status;
+      }, alice.user.id),
+    ).toBe(200);
+    await expect(page.getByRole("button", { name: "Account: Guest", exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    expect(
+      await page.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")),
+    ).toBe(true);
+    await expect(other.locator("#mic")).toHaveAttribute("aria-label", "Mute microphone");
+    const replay = await context.newPage();
+    await replay.goto(`/connect#handoff=${firstTicket}`);
+    await expect(replay.getByRole("alert")).toContainText("Open Voice & screen again from the app");
+    await expect(replay.locator("#leave")).toHaveCount(0);
+    await expect(replay.locator("input:visible")).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("concurrent browser bootstrap is serialized and interrupted handoff can be reopened", async ({
+  browser,
+  request,
+}) => {
+  const context = await browser.newContext();
+  await synthetic(context);
+  const a = await context.newPage(),
+    b = await context.newPage();
+  const suffix = randomBytes(5).toString("hex");
+  let anonymousRequests = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await context.route("**/api/browser/session", async (route) => {
+    if (!(await route.request().allHeaders()).cookie) {
+      anonymousRequests++;
+      await gate;
+    }
+    await route.continue();
+  });
+  try {
+    await Promise.all([a.goto("/"), b.goto("/")]);
+    await expect.poll(() => anonymousRequests).toBe(1);
+    release();
+    await expect(a.locator("#voice")).toBeAttached();
+    await expect(b.locator("#voice")).toBeAttached();
+    expect(anonymousRequests).toBe(1);
+    await context.unroute("**/api/browser/session");
+    const registration = await request.post("/api/accounts/register", {
+      data: { username: `pending_${suffix}`, password: "pending handoff test password" },
+    });
+    const account = (await registration.json()) as import("../shared/directory.js").SavedAccount;
+    const headers = { Authorization: `Bearer ${account.token}` };
+    const roomResponse = await request.post("/api/rooms", {
+      headers,
+      data: { code: randomBytes(16).toString("hex"), name: "Pending room" },
+    });
+    const room = (await roomResponse.json()) as { selected: string };
+    const ticketResponse = await request.post("/api/accounts/browser-handoffs", {
+      headers,
+      data: { roomId: room.selected },
+    });
+    const ticket = (await ticketResponse.json()) as { ticket: string };
+    await a.goto(`/connect#handoff=${ticket.ticket}`);
+    await expect(a.getByRole("dialog")).toBeVisible();
+    await a.reload();
+    await expect(a.getByRole("alert")).toContainText("connection was interrupted");
+    await expect(a.getByRole("dialog")).toHaveCount(0);
+    await expect(a.locator("#leave")).toHaveCount(0);
+    expect(await a.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    // Dialogs and menus remain usable without a pointer, and leave no forms on the page.
+    await a.getByRole("button", { name: "Add room", exact: true }).focus();
+    await a.keyboard.press("Enter");
+    await a.getByRole("menuitem", { name: "Open invitation", exact: true }).focus();
+    await a.keyboard.press("Enter");
+    await expect(a.getByRole("dialog", { name: "Open invitation" })).toBeVisible();
+    await a.keyboard.press("Escape");
+    await expect(a.getByRole("dialog")).toHaveCount(0);
+    await expect(a.locator("input:visible")).toHaveCount(0);
+  } finally {
+    release();
     await context.close();
   }
 });

@@ -12,6 +12,15 @@ if (!isset($compose['services']['web'], $compose['services']['turn'])) {
     throw new Exception('Unexpected collaboration compose');
 }
 $compose['services']['web']['image'] = $image;
+$compose['services']['web']['environment']['DATA_DIR'] = '/app/data';
+$compose['services']['web']['volumes'] ??= [];
+if (!in_array('directory-data:/app/data', $compose['services']['web']['volumes'], true)) {
+    $compose['services']['web']['volumes'][] = 'directory-data:/app/data';
+}
+$compose['volumes'] ??= [];
+if (!array_key_exists('directory-data', $compose['volumes'])) {
+    $compose['volumes']['directory-data'] = null;
+}
 unset($compose['services']['web']['build']);
 $raw = Symfony\Component\Yaml\Yaml::dump($compose, 10, 2);
 parseDockerComposeYaml($raw);

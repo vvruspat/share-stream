@@ -15,9 +15,12 @@ export function explainError(error: unknown): string {
 export function useCall(token: string) {
   const [call] = useState(() => new Call({ resume: token }));
   const [state, setState] = useState(() => call.snapshot);
-  const [remote, setRemote] = useState<Partial<RemoteMedia>>({ mic: false, screen: false });
-  const [voiceStream, setVoiceStream] = useState<MediaStream | null>(null);
-  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const [peers, setPeers] = useState<
+    Record<
+      string,
+      { voice: MediaStream | null; screen: MediaStream | null; media: Partial<RemoteMedia> }
+    >
+  >({});
   const [localScreen, setLocalScreen] = useState<MediaStream | null>(null);
   const [error, setError] = useState("");
   const run = useCallback(async (action: () => Promise<unknown> | void) => {
@@ -32,12 +35,31 @@ export function useCall(token: string) {
   useEffect(() => {
     const subscriptions = [
       call.on("state", setState),
-      call.on("remoteState", setRemote),
+      call.on("remoteState", ({ peer, ...media }) => {
+        if (!peer) {
+          setPeers({});
+          return;
+        }
+        setPeers((previous) => ({
+          ...previous,
+          [peer]: {
+            voice: previous[peer]?.voice || null,
+            screen: previous[peer]?.screen || null,
+            media,
+          },
+        }));
+      }),
       call.on("error", setError),
       call.on("localScreen", setLocalScreen),
-      call.on("track", ({ channel, stream }) => {
-        if (channel === "voice") setVoiceStream(stream);
-        else setScreenStream(stream);
+      call.on("track", ({ peer, channel, stream }) => {
+        if (!peer) return;
+        setPeers((previous) => ({
+          ...previous,
+          [peer]: {
+            ...(previous[peer] || { voice: null, screen: null, media: {} }),
+            [channel]: stream,
+          },
+        }));
       }),
     ];
     const leave = () => call.leave();
@@ -48,5 +70,10 @@ export function useCall(token: string) {
       call.leave();
     };
   }, [call]);
-  return { call, state, remote, voiceStream, screenStream, localScreen, error, run };
+  const remotes = Object.entries(peers).map(([id, peer]) => ({ id, ...peer }));
+  const remote = {
+    mic: remotes.some((p) => p.media.mic),
+    screen: remotes.some((p) => p.media.screen),
+  };
+  return { call, state, remote, remotes, localScreen, error, run };
 }
