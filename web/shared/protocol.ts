@@ -43,7 +43,7 @@ export type SignalPayload =
   | RemoteMedia
   | { description: RTCSessionDescriptionInit }
   | { candidate: RTCIceCandidateInit };
-export const WEB_VERSION = "0.4.5";
+export const WEB_VERSION = "0.5.0";
 // v3 supports independent peer links in group calls.
 export const SIGNAL_VERSION = 3;
 export const MAX_PARTICIPANTS = 8;

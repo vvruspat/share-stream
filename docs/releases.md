@@ -23,6 +23,45 @@ The **Release** workflow validates the tag against all versions and `origin/main
 
 The macOS job first notarizes/staples the three bundles, then seals them in Setup's signed resources and notarizes/staples Setup separately. After all platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all six downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
 
+### Applications first, backend later
+
+The checked-in `scripts/ci/release-plan.json` can defer backend deployment for one
+exact version. Version 0.5.0 uses `deploy_backend: false` because the first saved-room
+deployment needs an administrator to update the trusted server helper. The tagged
+release still tests/builds the backend and every native platform, signs/notarizes
+macOS and verifies all published assets. It skips production deployment only for
+that explicitly named version. A missing plan or a different version uses the
+normal deploy-before-publication process.
+
+The native applications can be installed immediately, but production remains on
+0.4.5 until the server update: guest sessions keep the existing two-person behavior;
+accounts, saved rooms, larger groups, the new browser UI and account handoff wait
+for the backend. This limitation must appear prominently in the release notes.
+
+When administrator access is available:
+
+1. Compare the installed trusted helper with `scripts/ci/coolify-image.php` from
+   the release tag. Keep a backup of the previous helper and install the updated
+   file at `/usr/local/libexec/share-stream-coolify-image.php`, owned by root and
+   not writable by other users. Preserve any existing directory data and key.
+2. Validate the helper against the existing Coolify service with
+   `SHARE_STREAM_DRY_RUN=1`; it must add `DATA_DIR=/app/data` and the
+   `directory-data:/app/data` mount without saving changes or restarting services.
+3. Run the backend-only workflow against the published immutable tag:
+
+   ```sh
+   gh workflow run release.yml --ref v0.5.0 -f backend_only=true
+   ```
+
+   This validates the tag's main ancestry, tests/rebuilds the backend and deploys
+   through the existing controller. Native installers are not rebuilt, signed or
+   republished. Existing publication recovery remains a separate operation.
+4. Confirm `/api/health` reports version 0.5.0 and the exact tagged commit; inspect
+   the web container's `/app/data` mount and `DATA_DIR` without dumping secrets.
+   Check saved-room persistence, native-to-browser sign-in and a group session.
+5. Update the release description and README to remove the deferred-server notice
+   only after those production checks succeed.
+
 To retry compilation, signing or deployment failures, use **Re-run failed jobs**. A normal manual dispatch must select the existing `vX.Y.Z` tag as its ref. Published binaries are never overwritten; an identical published release is a successful no-op.
 
 If only publication failed, dispatch **Release** from `main` with `recovery_tag=vX.Y.Z` and `source_run_id` set to the original Release run ID. Recovery verifies that the run belongs to this repository and immutable tag, every build/test/sign/deploy gate succeeded, and production reports the exact tagged revision. It downloads those existing Actions artifacts and finishes the matching draft without rebuilding, signing again or deploying. Every existing asset must match its expected SHA-256 and size; different published or draft assets are rejected. A partial matching draft can receive missing assets. Draft metadata is queried by numeric release ID, since the REST tag endpoint excludes drafts.

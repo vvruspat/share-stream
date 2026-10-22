@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from release_policy import deployment_for_checkout
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -25,7 +26,8 @@ def release_info(tag=None):
         assert tagged == sha, 'Release must run from the tagged commit'
         subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], cwd=ROOT, check=True)
     return dict(version=version, tag=f'v{version}', sha=sha,
-                image=f'share-stream-call:{version}-{sha[:12]}')
+                image=f'share-stream-call:{version}-{sha[:12]}',
+                deploy_backend=deployment_for_checkout(version))
 
 
 if __name__ == '__main__':
@@ -36,4 +38,5 @@ if __name__ == '__main__':
     print(json.dumps(info, indent=2))
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-            output.writelines(f'{key}={value}\n' for key, value in info.items())
+            output.writelines(f'{key}={json.dumps(value) if isinstance(value, bool) else value}\n'
+                              for key, value in info.items())

@@ -81,14 +81,14 @@ static bool network(juce::AudioPluginInstance& plugin,int port) {
     if(!editor)return false;
     ProbeWindow window;window.setContentNonOwned(editor.get(),true);window.centreWithSize(700,580);window.setVisible(true);pump();
     auto* view=(NSView*)window.getPeer()->getNativeHandle();
-    id connect=findButton(view,@"Create session");
-    if(!connect){std::cerr<<"Connect accessibility action not found\n";window.clearContentComponent();return false;}
-    if(![connect accessibilityPerformPress]) {std::cerr<<"Connect accessibility action rejected\n";window.clearContentComponent();return false;}
+    id connect=findButton(view,@"Connect music");
+    if(!connect){std::cerr<<"Connect music accessibility action not found\n";window.clearContentComponent();return false;}
+    if(![connect accessibilityPerformPress]) {std::cerr<<"Connect music accessibility action rejected\n";window.clearContentComponent();return false;}
     // triggerClick posts a JUCE message. Wait for the public UI state change
     // before suspending the UI loop to simulate audio; a fixed 50 ms races CI.
     const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
-    while(!findButton(view,@"Leave session") && std::chrono::steady_clock::now()<deadline)pump();
-    if(!findButton(view,@"Leave session")) {std::cerr<<"Connect action did not reach the processor\n";window.clearContentComponent();return false;}
+    while(!findButton(view,@"Disconnect music") && std::chrono::steady_clock::now()<deadline)pump();
+    if(!findButton(view,@"Disconnect music")) {std::cerr<<"Connect music action did not reach the processor\n";window.clearContentComponent();return false;}
     sharestream::StreamEngine sender;sender.prepare(48000,128);if(!sender.connect(c))return false;
     juce::AudioBuffer<float> tx(2,128),rx(2,128);juce::MidiBuffer midi;
     int audible=0;const auto start=std::chrono::steady_clock::now();
