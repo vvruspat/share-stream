@@ -5,11 +5,15 @@ on:
     tags: ['v*']
   workflow_dispatch:
     inputs:
+      backend_only:
+        description: 'Deploy backend only from the selected existing vX.Y.Z tag; do not rebuild or publish installers'
+        type: boolean
+        default: false
       recovery_tag:
         description: 'Publication recovery only: existing vX.Y.Z tag'
         type: string
       source_run_id:
-        description: 'Publication recovery only: fully built, signed and deployed Release run ID'
+        description: 'Publication recovery only: fully built and signed Release run ID with its required rollout completed'
         type: string
 permissions:
   contents: read
@@ -18,6 +22,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   platforms:
+    if: ${{ !inputs.backend_only }}
     needs: version
     uses: ./.github/workflows/native-platforms.yml
   version:
@@ -27,14 +32,28 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       tag: ${{ steps.release.outputs.tag }}
+      deploy_backend: ${{ steps.release.outputs.deploy_backend }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Validate release mode
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          BACKEND_ONLY: ${{ inputs.backend_only }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RECOVERY_TAG: ${{ inputs.recovery_tag }}
+        run: python3 scripts/ci/release_policy.py
       - id: release
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python3 scripts/ci/release_info.py --tag "$RELEASE_TAG"
+      - name: Verify published application release before backend-only deployment
+        if: inputs.backend_only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 scripts/ci/release_policy.py --verify-published "$RELEASE_TAG"
   web:
     name: Test and build backend
     needs: version
@@ -60,6 +79,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
   native:
+    if: ${{ !inputs.backend_only }}
     name: Build, sign and notarize macOS
     needs: version
     runs-on: macos-15
@@ -89,6 +109,7 @@ jobs:
   deploy:
     name: Deploy backend through Coolify
     needs: [version, web, native, platforms]
+    if: ${{ always() && !cancelled() && needs.version.result == 'success' && needs.web.result == 'success' && (inputs.backend_only || (needs.native.result == 'success' && needs.platforms.result == 'success')) && (inputs.backend_only || needs.version.outputs.deploy_backend == 'true') }}
     runs-on: ubuntu-24.04
     environment: production
     timeout-minutes: 10
@@ -105,7 +126,8 @@ jobs:
         run: bash scripts/ci/deploy-backend.sh
   publish:
     name: Publish signed release
-    needs: [version, deploy]
+    needs: [version, web, native, platforms, deploy]
+    if: ${{ always() && !cancelled() && !inputs.backend_only && needs.version.result == 'success' && needs.web.result == 'success' && needs.native.result == 'success' && needs.platforms.result == 'success' && (needs.deploy.result == 'success' || (needs.version.outputs.deploy_backend == 'false' && needs.deploy.result == 'skipped')) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -139,6 +161,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Validate release mode
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          BACKEND_ONLY: ${{ inputs.backend_only }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RECOVERY_TAG: ${{ inputs.recovery_tag }}
+        run: python3 scripts/ci/release_policy.py
       - name: Validate source run, signatures and deployment gates
         env:
           GH_TOKEN: ${{ github.token }}

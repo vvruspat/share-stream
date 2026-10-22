@@ -22,6 +22,9 @@ sample-level gain, stereo meters, mute and a 0 dB reset. Live streaming quality
 (Float32, PCM24, Opus 320 kbps), independent Send/Listen monitoring, shared
 participant presence, remembered names, GitHub Releases updates and combined
 installers are retained.
+The 0.5.0 applications are published before the server update. Until that
+update, production retains guest sessions and the previous two-person behavior;
+accounts, saved rooms, groups and the new browser interface remain unavailable.
 Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
 One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
 The browser service uses React, TypeScript and Vite+, with styled Radix UI controls

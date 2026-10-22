@@ -1,5 +1,12 @@
 Share Stream 0.5.0 adds persistent rooms, group sessions and a simpler interface across the plugin, receiver and browser.
 
+**Applications are published first; the server update is deferred.** The production
+server is still on 0.4.5. You can install the new native interface and continue
+using guest sessions with the existing two-person server behavior. Accounts,
+saved rooms, groups of up to eight, the new browser interface and automatic
+browser sign-in become available after the server upgrade. The feature list
+below describes the complete 0.5.0 update.
+
 - Create an account with a username and password, keep multiple accounts signed in, and switch from the profile menu. Named rooms remain in your list after everyone leaves and after a server restart. Room creators can rename rooms and invite registered users; invitation links still work for guests.
 - Connect up to eight people: one sends music and up to seven listen. Each listener uses its own direct P2P connection with targeted relay fallback. Everyone can speak and share a screen; when several screens are shared, choose which one to watch.
 - Use a compact native room picker and account menu, or the browser room sidebar. Creation, invitation, rename and sign-in fields open in focused dialogs. Microphone, screen, audio and leave controls stay easy to reach on desktop and mobile.

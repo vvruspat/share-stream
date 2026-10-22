@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -14,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def module(name, path):
     spec = importlib.util.spec_from_file_location(name, ROOT/path)
     result = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(result)
+    with patch.object(sys, 'path', [str((ROOT/path).parent), *sys.path]):
+        spec.loader.exec_module(result)
     return result
 
 
@@ -81,6 +83,7 @@ class RecoveryTests(unittest.TestCase):
         run = dict(repository=dict(full_name='vvruspat/share-stream'), path='.github/workflows/release.yml',
                    head_sha=sha, head_branch='v0.4.1', status='completed')
         jobs = [dict(name=name, conclusion='success') for name in recovery.REQUIRED]
+        jobs.append(dict(name=recovery.DEPLOY_JOB, conclusion='success'))
         jobs.append(dict(name='Publish signed release', conclusion='failure'))
         health = dict(ok=True, version='0.4.1', revision=sha)
         return run, jobs, sha, health
@@ -97,3 +100,27 @@ class RecoveryTests(unittest.TestCase):
         for changed, live in [(dict(run, head_sha='b'*40), health), (run, dict(health, revision='b'*40))]:
             with self.assertRaises(RuntimeError):
                 recovery.validate('v0.4.1', changed, jobs, sha, live)
+
+    def test_deferred_release_recovery_requires_skipped_deploy_and_all_other_gates(self):
+        run, jobs, sha, _ = self.fixture()
+        deploy = next(job for job in jobs if job['name'] == recovery.DEPLOY_JOB)
+        deploy['conclusion'] = 'skipped'
+        recovery.validate('v0.4.1', run, jobs, sha, {}, deploy_backend=False)
+        with self.assertRaisesRegex(RuntimeError, 'immutable release plan'):
+            recovery.validate('v0.4.1', run, jobs, sha, {})
+        for conclusion in ('failure', 'cancelled', 'success'):
+            deploy['conclusion'] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaises(RuntimeError):
+                recovery.validate('v0.4.1', run, jobs, sha, {}, deploy_backend=False)
+        deploy['conclusion'] = 'skipped'
+        jobs[0]['conclusion'] = 'skipped'
+        with self.assertRaisesRegex(RuntimeError, 'signing'):
+            recovery.validate('v0.4.1', run, jobs, sha, {}, deploy_backend=False)
+
+    def test_deferred_recovery_rejects_wrong_revision_and_missing_deployment_gate(self):
+        run, jobs, sha, _ = self.fixture()
+        for changed in (dict(run, head_sha='b'*40), run):
+            with self.assertRaises(RuntimeError):
+                recovery.validate('v0.4.1', changed,
+                                  [job for job in jobs if job['name'] != recovery.DEPLOY_JOB],
+                                  sha, {}, deploy_backend=False)
