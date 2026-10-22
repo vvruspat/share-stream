@@ -69,3 +69,13 @@ The controller updates only Coolify service **Share Stream → production → Vo
 `/api/health` must report the exact version and commit SHA before deployment succeeds. On failure, the controller queues the previous web image and restores the previous relay source. Deployment is serialized both in GitHub and on the server. Current successful metadata is kept at `/opt/share-stream/ci/deployed.json`.
 
 The initial local-source deployment scripts remain available for administrator recovery; running them switches web back to a source build. For normal releases use the workflow. To roll back, deploy a new release from a revert commit rather than moving an existing tag. Keep recent Docker images until the new release has been verified.
+
+## First deployment with saved rooms
+
+Before deploying the first accounts/rooms release, install the updated trusted
+`scripts/ci/coolify-image.php` at `/usr/local/libexec/share-stream-coolify-image.php`
+with the existing root ownership. The helper adds `DATA_DIR=/app/data` and the
+`directory-data` named volume to the existing service without restarting TURN.
+An old helper updates only the image and cannot provide persistent room storage.
+Back up the complete data directory, including `rooms.key`, before later updates.
+See [accounts and saved rooms](rooms.md) for backup and restore requirements.

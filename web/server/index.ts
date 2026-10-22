@@ -9,6 +9,7 @@ if (
 )
   throw new Error("Production requires HTTPS origin and TURN secret");
 const service = createService({
+  dataDir: process.env.DATA_DIR || ".data",
   origin: process.env.PUBLIC_ORIGIN,
   turnSecret: secret,
   turnHost: process.env.TURN_HOST,

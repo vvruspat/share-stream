@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 .venv/
 node_modules/
+.data/
 web/test-results/
 web/playwright-report/
 web/.env

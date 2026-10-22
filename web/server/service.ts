@@ -4,6 +4,7 @@ import { resolve, join } from "node:path";
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { PresenceRegistry } from "./presence.js";
+import { Directory, DirectoryError } from "./directory.js";
 import {
   WEB_VERSION,
   SIGNAL_VERSION,
@@ -69,6 +70,7 @@ function isSignal(m: unknown): m is EncryptedSignal {
   );
 }
 interface ServiceOptions {
+  dataDir?: string;
   origin?: string | readonly string[];
   turnHost?: string;
   turnSecret?: string;
@@ -80,12 +82,15 @@ interface Member {
   resume: string;
 }
 export function createService({
+  dataDir,
   origin = "http://localhost:48101",
   turnHost = "stream.whitesquirrel.digital",
   turnSecret = "",
   maxRooms = 64,
   clientDir = resolve("dist/client"),
 }: ServiceOptions = {}) {
+  const directory = new Directory(dataDir);
+  const directoryRates = new Map<string, { start: number; count: number }>();
   const rooms = new Map<string, Map<string, Member>>(),
     joins = new Map<string, { start: number; count: number }>();
   const presence = new PresenceRegistry(Date.now, maxRooms);
@@ -100,6 +105,72 @@ export function createService({
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   };
   const server = createServer(async (req, res) => {
+    if (req.url?.startsWith("/api/accounts/") || req.url?.startsWith("/api/rooms")) {
+      const reply = (status: number, body: unknown) =>
+        res
+          .writeHead(status, { ...headers, "Content-Type": "application/json" })
+          .end(JSON.stringify(body));
+      try {
+        const allowed = typeof origin === "string" ? [origin] : origin;
+        if (req.headers.origin && !allowed.includes(req.headers.origin))
+          throw new DirectoryError("Origin not allowed.", 403);
+        const auth = req.url === "/api/accounts/register" || req.url === "/api/accounts/login";
+        const ip = req.socket.remoteAddress || "unknown";
+        const key = `${auth ? "auth" : "rooms"}:${ip}`;
+        const previous = directoryRates.get(key),
+          now = Date.now();
+        const rate =
+          !previous || now - previous.start >= 60000 ? { start: now, count: 0 } : previous;
+        directoryRates.set(key, rate);
+        if (++rate.count > (auth ? 20 : 240))
+          throw new DirectoryError("Too many requests. Try again shortly.", 429);
+        let body: Record<string, unknown> = {};
+        if (req.method === "POST" || req.method === "PATCH") {
+          if (!req.headers["content-type"]?.startsWith("application/json"))
+            throw new DirectoryError("Expected JSON.", 415);
+          req.setEncoding("utf8");
+          let raw = "";
+          for await (const chunk of req) {
+            raw += String(chunk);
+            if (raw.length > 4096) throw new DirectoryError("Request too large.", 413);
+          }
+          const value: unknown = JSON.parse(raw);
+          if (!record(value) || Array.isArray(value)) throw new DirectoryError("Invalid request.");
+          body = value;
+        }
+        if (auth && req.method === "POST") {
+          reply(200, await directory.authenticate(body, req.url === "/api/accounts/register"));
+          return;
+        }
+        const token = req.headers.authorization?.replace(/^Bearer /, "") || "";
+        const user = directory.user(token);
+        let selected: string | undefined;
+        if (req.url === "/api/accounts/logout" && req.method === "POST") directory.logout(token);
+        else if (req.url === "/api/rooms" && req.method === "GET") {
+          /* List below. */
+        } else if (
+          (req.url === "/api/rooms" || req.url === "/api/rooms/accept") &&
+          req.method === "POST"
+        )
+          selected = directory.save(user, body, req.url === "/api/rooms");
+        else {
+          const match = /^\/api\/rooms\/([a-f0-9]{64})(\/invitations)?$/.exec(req.url);
+          if (!match || (match[2] ? req.method !== "POST" : req.method !== "PATCH"))
+            throw new DirectoryError("Not found.", 404);
+          directory.manage(user, match[1], body, !!match[2]);
+        }
+        reply(200, { user, rooms: directory.rooms(user), selected });
+      } catch (error) {
+        reply(
+          error instanceof DirectoryError ? error.status : error instanceof SyntaxError ? 400 : 500,
+          {
+            error:
+              error instanceof DirectoryError ? error.message : "Could not complete the request.",
+          },
+        );
+      }
+      return;
+    }
     if (req.url === "/api/presence" && req.method === "POST") {
       const allowed = typeof origin === "string" ? [origin] : origin;
       if (req.headers.origin && !allowed.includes(req.headers.origin)) {
@@ -331,6 +402,8 @@ export function createService({
     for (const [ip, rate] of joins) if (Date.now() - rate.start > 60000) joins.delete(ip);
     for (const [ip, rate] of presenceRates)
       if (Date.now() - rate.start > 10000) presenceRates.delete(ip);
+    for (const [key, rate] of directoryRates)
+      if (Date.now() - rate.start > 60000) directoryRates.delete(key);
     presence.prune();
   }, 15000);
   return {
@@ -343,6 +416,7 @@ export function createService({
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
+      directory.close();
     },
   };
 }

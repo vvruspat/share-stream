@@ -38,6 +38,14 @@ The production deployment stays managed by Coolify. Its existing remote build
 directory is `/opt/share-stream/collaboration`; retaining that path preserves
 the service and TURN secret mounts after the local rename to `web/`.
 
+## Accounts and rooms
+
+The account directory uses Node 24 SQLite and survives empty rooms and server
+restarts. Native and browser clients share username/password accounts, named rooms,
+owner management and invitations. Development stores data in `.data`; production
+requires the persistent `directory-data` volume. Room codes are encrypted at rest
+with a separate server key. See [storage, privacy and deployment](../docs/rooms.md).
+
 ## Media invariants
 
 Native and browser clients use the same 32-character room secret. `Copy invite`

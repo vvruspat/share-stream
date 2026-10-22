@@ -16,6 +16,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+RUN mkdir /app/data && chown node:node /app/data
 USER node
 ENV NODE_ENV=production PORT=48101 SHARE_STREAM_REVISION=$SHARE_STREAM_REVISION
 EXPOSE 48101

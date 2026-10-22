@@ -29,6 +29,10 @@ private:
     void copyInvite();
     void pasteInvite();
     void joinSession();
+    void accountDialog();
+    void roomDialog(int action);
+    void selectRoom(const juce::var&);
+    void rememberRoom();
     bool loadInvite(const juce::String&);
     ShareStreamProcessor& processor;
     MonitorLookAndFeel theme;
@@ -41,6 +45,12 @@ private:
     juce::SharedResourcePointer<sharestream::Updater> updater;
     juce::TextEditor server, port, room;
     juce::ComboBox buffer, quality;
+    juce::ComboBox accountList, roomList;
+    juce::TextButton accountLogin {"Add account"}, accountLogout {"Sign out"};
+    juce::TextButton createSaved {"New room"}, saveSaved {"Save current"}, renameSaved {"Rename"}, inviteSaved {"Invite user"};
+    juce::Label directoryStatus;
+    juce::String directoryFingerprint;
+    int directorySelection=0;
     juce::Slider monitor;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> monitorAttachment;
     juce::Label serverLabel, portLabel, roomLabel, bufferLabel, qualityLabel, status, stats, hint, gain, peak;

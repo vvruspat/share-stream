@@ -16,10 +16,11 @@ import {
 } from "./components/ui/index.js";
 import { ScreenStage, VoicePlayer } from "./components/Media.js";
 import { useCall } from "./call/useCall.js";
-import { participantToken, useParticipants } from "./call/useParticipants.js";
+import { useParticipants } from "./call/useParticipants.js";
 import { loadDisplayName, saveDisplayName } from "./call/profile.js";
-import { parseInvitation, invitationLink, type Invitation } from "./call/invitation.js";
+import { invitationLink, type Invitation } from "./call/invitation.js";
 import type { VoiceMode } from "./call/Call.js";
+import { RoomDirectory } from "./components/RoomDirectory.js";
 import type { StereoPeaks } from "./audio/monitor.js";
 
 const supported =
@@ -28,13 +29,6 @@ const supported =
   typeof window.AudioContext === "function" &&
   !!crypto.subtle;
 const outputSupported = "setSinkId" in HTMLMediaElement.prototype;
-function initialRoom(): Invitation | null {
-  try {
-    return parseInvitation(location.href);
-  } catch {
-    return null;
-  }
-}
 const defaultDevice = [{ value: "", label: "System default" }];
 const modes: SelectOption[] = [
   { value: "headphones", label: "Headphones · unprocessed" },
@@ -42,8 +36,26 @@ const modes: SelectOption[] = [
 ];
 
 export function App() {
-  const [invite] = useState(initialRoom);
-  const [token] = useState(() => participantToken(invite?.code || null));
+  return (
+    <RoomDirectory>
+      {(selection) => (
+        <Session key={`${selection.token}:${selection.invite?.code || ""}`} {...selection} />
+      )}
+    </RoomDirectory>
+  );
+}
+
+function Session({
+  invite,
+  token,
+  name: accountName,
+  roomName,
+}: {
+  invite: Invitation | null;
+  token: string;
+  name?: string;
+  roomName?: string;
+}) {
   const { call, state, remote, voiceStream, screenStream, localScreen, error, run } =
     useCall(token);
   const [joining, setJoining] = useState(false);
@@ -54,7 +66,7 @@ export function App() {
   const [outputs, setOutputs] = useState<SelectOption[]>(defaultDevice);
   const [volumeDb, setVolumeDb] = useState(0);
   const [voicePeaks, setVoicePeaks] = useState<StereoPeaks>([0, 0]);
-  const [name, setName] = useState(loadDisplayName);
+  const [name, setName] = useState(() => accountName || loadDisplayName());
   const roster = useParticipants(
     invite?.code || null,
     token,
@@ -150,7 +162,7 @@ export function App() {
       <main>
         <header className="page-header">
           <h1>
-            Share Stream <span>/ Voice & screen</span>
+            Share Stream <span>/ {roomName || "Voice & screen"}</span>
           </h1>
           <div className="connection-controls">
             <span
@@ -175,7 +187,7 @@ export function App() {
         </header>
         {!invite && (
           <div className="session-message" role="status">
-            Open Voice & screen from your Share Stream plugin to join its session.
+            Choose a saved room above, or open an invitation from your Share Stream plugin.
           </div>
         )}
         <ScreenStage

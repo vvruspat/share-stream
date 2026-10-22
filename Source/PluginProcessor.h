@@ -2,6 +2,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "StreamEngine.h"
 #include "ParticipantPresence.h"
+#include "RoomDirectory.h"
 #include <limits>
 
 class ShareStreamProcessor final : public juce::AudioProcessor {
@@ -36,9 +37,11 @@ public:
     double currentSampleRate() const { return meterSampleRate.load(); }
     sharestream::ParticipantPresence::State participants() const;
     juce::String participantId() const;
+    juce::String participantToken() const;
     juce::URL collaborationURL();
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
     juce::AudioProcessorValueTreeState parameters;
+    sharestream::RoomDirectory directory;
 private:
     sharestream::StreamEngine engine;
     mutable std::mutex configMutex;

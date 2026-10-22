@@ -977,3 +977,86 @@ test("display name persists after reload and joins a different room from localSt
     await context.close();
   }
 });
+
+test("saved rooms survive leave and reload, invitations and account switching", async ({
+  browser,
+}) => {
+  const a = await browser.newContext(),
+    b = await browser.newContext();
+  await synthetic(a);
+  await synthetic(b);
+  const pa = await a.newPage(),
+    pb = await b.newPage();
+  const suffix = randomBytes(5).toString("hex");
+  const alice = `alice_${suffix}`,
+    bob = `bob_${suffix}`,
+    password = "test room password";
+  const register = async (page: Page, username: string) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: "Register", exact: true }).click();
+    await page.getByLabel("Username", { exact: true }).fill(username);
+    await page.getByLabel("Password", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "Create account", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  };
+  const room = (page: Page, name: string) =>
+    page
+      .getByRole("navigation", { name: "Saved rooms" })
+      .getByRole("button", { name: new RegExp(name) });
+  try {
+    await register(pa, alice);
+    await register(pb, bob);
+    await pa.getByLabel("New room name", { exact: true }).fill("Album mix");
+    await pa.getByRole("button", { name: "Create room", exact: true }).click();
+    await expect(room(pa, "Album mix")).toBeVisible();
+    await pa.getByLabel("Invite username", { exact: true }).fill(bob);
+    await pa.getByRole("button", { name: "Invite user", exact: true }).click();
+    await expect(room(pb, "Album mix")).toBeVisible({ timeout: 10000 });
+    await pa.getByLabel("Room name", { exact: true }).fill("Friday session");
+    await pa.getByRole("button", { name: "Rename room", exact: true }).click();
+    await expect(room(pb, "Friday session")).toBeVisible({ timeout: 10000 });
+    await room(pa, "Friday session").click();
+    await room(pb, "Friday session").click();
+    await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await expect(pb.locator("#status")).toContainText("Connected");
+    expect(await pa.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    await pa.locator("#leave").click();
+    await pb.locator("#leave").click();
+    await pa.reload();
+    await pb.reload();
+    await expect(room(pa, "Friday session")).toBeVisible();
+    await expect(room(pb, "Friday session")).toBeVisible();
+    await expect(pa.locator("#status")).toHaveText("Ready");
+    await room(pa, "Friday session").click();
+    await room(pb, "Friday session").click();
+    await expect(pa.locator("#status")).toContainText("Connected", { timeout: 25000 });
+    await pa.locator("#mic").click();
+    await expect
+      .poll(() =>
+        pa.evaluate(() => window.captureTracks.filter((t) => t.readyState === "live").length),
+      )
+      .toBe(1);
+    await pa.getByRole("button", { name: "Add account", exact: true }).click();
+    await pa.getByLabel("Username", { exact: true }).fill(bob);
+    await pa.getByLabel("Password", { exact: true }).fill(password);
+    await pa.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect
+      .poll(() => pa.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")))
+      .toBe(true);
+    await expect(pa.locator("#status")).toHaveText("Ready");
+    await expect(room(pa, "Friday session")).toContainText("Member");
+    await pa.getByRole("combobox", { name: "Account", exact: true }).click();
+    await pa.getByRole("option", { name: new RegExp(alice) }).click();
+    await expect(room(pa, "Friday session")).toContainText("Owner");
+    await expect(pa.locator("#status")).toHaveText("Ready");
+    await room(pa, "Friday session").click();
+    await expect(pa.getByRole("button", { name: "Rename room", exact: true })).toBeVisible();
+    await pa.locator("#leave").click();
+    await pa.screenshot({ path: "/tmp/share-stream-rooms.png", fullPage: true });
+    await pa.setViewportSize({ width: 390, height: 844 });
+    expect(await pa.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});

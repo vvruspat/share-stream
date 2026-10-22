@@ -24,11 +24,11 @@ ShareStreamProcessor::ShareStreamProcessor()
                                    .withOutput("Output",juce::AudioChannelSet::stereo(),true)),
     parameters(*this,nullptr,"Monitor",monitorParameters()), presence([this] {
       const auto c=configuration();const auto s=statistics();
-      const auto token=sharestream::ParticipantPresence::localToken(c.code);
+      const auto token=participantToken();
       auto* value=new juce::DynamicObject;
       const juce::String roomLabel="ShareStream-call-room-v1:"+juce::String(c.code);
       value->setProperty("room",juce::SHA256(roomLabel.toRawUTF8(),roomLabel.getNumBytesAsUTF8()).toHexString());
-      value->setProperty("token",token);value->setProperty("source","plugin");value->setProperty("connected",s.running);
+      value->setProperty("token",token);if(directory.name().isNotEmpty())value->setProperty("name",directory.name());value->setProperty("source","plugin");value->setProperty("connected",s.running);
       juce::var music;
       if(s.running)music=juce::String(!s.peer || s.waitingForAudio ? "connecting" : c.role==sharestream::Role::send ? "sending" : "listening");
       value->setProperty("music",music);
@@ -107,7 +107,12 @@ std::array<float,2> ShareStreamProcessor::monitorPeaks() const {
     if(!last || juce::Time::getMillisecondCounterHiRes()*1000-last>250000)return {0,0};
     return {monitorPeak[0].load(std::memory_order_relaxed),monitorPeak[1].load(std::memory_order_relaxed)};
 }
-juce::String ShareStreamProcessor::participantId() const { return sharestream::ParticipantPresence::identity(sharestream::ParticipantPresence::localToken(configuration().code)); }
+juce::String ShareStreamProcessor::participantId() const { return sharestream::ParticipantPresence::identity(participantToken()); }
+
+juce::String ShareStreamProcessor::participantToken() const {
+    const auto code=configuration().code;const auto saved=directory.participant(code);
+    return saved.isNotEmpty()?saved:sharestream::ParticipantPresence::localToken(code);
+}
 sharestream::ParticipantPresence::State ShareStreamProcessor::participants() const {
     auto result=presence.state();
     const juce::String label="ShareStream-call-room-v1:"+juce::String(configuration().code);
@@ -121,7 +126,7 @@ juce::URL ShareStreamProcessor::collaborationURL() {
     presence.activate();
     // The invitation is already encoded. Parsing it as a JUCE URL would escape
     // the entire fragment on launch, including the '=' and '&' separators.
-    return juce::URL::createWithoutParsing(juce::String(invite)+"&participant="+sharestream::ParticipantPresence::localToken(c.code));
+    return juce::URL::createWithoutParsing(juce::String(invite)+"&participant="+participantToken());
 }
 juce::AudioProcessorEditor* ShareStreamProcessor::createEditor() { return new ShareStreamEditor(*this); }
 void ShareStreamProcessor::getStateInformation(juce::MemoryBlock& data) {

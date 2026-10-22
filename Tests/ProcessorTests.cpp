@@ -213,6 +213,70 @@ static void invitationActions(Relay& relay) {
 int main(int argc,char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
+        if(argc==4 && std::string(argv[1])=="--directory-probe") {
+            auto body=[](std::initializer_list<std::pair<juce::String,juce::var>> fields){auto* object=new juce::DynamicObject;for(const auto& field:fields)object->setProperty(field.first,field.second);return juce::var(object);};
+            const auto password=juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_TEST_PASSWORD",{});
+            juce::String code;
+            auto wait=[&](auto&& predicate){for(int i=0;i<240;++i){if(predicate())return;juce::Thread::sleep(50);}throw std::runtime_error("Directory probe timed out");};
+            {
+                RoomDirectory directory;
+                directory.request("/api/accounts/login",body({{"username",juce::String(argv[2])},{"password",password}}));
+                wait([&]{return !directory.state().busy && directory.state().user["username"].toString()==argv[2];});
+                code=newRoomCode();
+                directory.request("/api/rooms",body({{"code",code},{"name","Native room"}}));
+                wait([&]{return !directory.state().busy && directory.state().selected.isObject();});
+                auto saved=directory.state().selected;const auto id=saved["id"].toString();
+                check(saved["code"].toString()==code && static_cast<bool>(saved["owner"]),"native client creates a persistent room");
+                const auto participant=directory.participant(code);check(participant.length()==32,"native room has an account-bound credential");
+                directory.request("/api/rooms/"+id,body({{"name","Native renamed"}}),"PATCH");
+                wait([&]{const auto state=directory.state();return !state.busy && state.rooms.isArray() && (*state.rooms.getArray())[0]["name"].toString()=="Native renamed";});
+                directory.request("/api/rooms/"+id+"/invitations",body({{"username",juce::String(argv[3])}}));
+                wait([&]{const auto state=directory.state();return !state.busy && state.rooms.isArray() && (*state.rooms.getArray())[0]["members"].size()==2;});
+                directory.request("/api/accounts/login",body({{"username",juce::String(argv[3])},{"password",password}}));
+                wait([&]{return !directory.state().busy && directory.state().user["username"].toString()==argv[3];});
+                check(directory.participant(code).isNotEmpty() && directory.participant(code)!=participant,"different accounts have separate room identities");
+                directory.select(1);
+                wait([&]{return !directory.state().busy && directory.state().user["username"].toString()==argv[2];});
+                check(directory.participant(code)==participant,"switching back restores the original room identity");
+            }
+            {
+                ShareStreamProcessor processor;
+                wait([&]{return processor.directory.state().rooms.size()==1;});
+                auto config=processor.configuration();config.code=code.toStdString();processor.setConfiguration(config);
+                check(!processor.statistics().running,"restoring a saved account never starts streaming");
+                std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+                auto image=editor->createComponentSnapshot(editor->getLocalBounds());
+                const auto target=juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_TEST_SNAPSHOT",{});
+                if(target.isNotEmpty()){juce::FileOutputStream output{juce::File(target)};check(juce::PNGImageFormat().writeImageToStream(image,output),"write directory preview");}
+                const juce::String unsaved=newRoomCode();
+                std::function<void(juce::Component*)> configure=[&](juce::Component* parent){
+                    for(auto* child:parent->getChildren()){
+                        if(auto* field=dynamic_cast<juce::TextEditor*>(child)){
+                            if(field->getTitle()=="Relay server")field->setText("127.0.0.1");
+                            if(field->getTitle()=="UDP port")field->setText("48190");
+                            if(field->getTitle()=="Private session code")field->setText(unsaved);
+                        }
+                        configure(child);
+                    }
+                };
+                configure(editor.get());
+                std::function<juce::TextButton*(juce::Component*)> findConnect=[&](juce::Component* parent)->juce::TextButton* {
+                    for(auto* child:parent->getChildren()){if(auto* button=dynamic_cast<juce::TextButton*>(child))if(button->getButtonText()=="Connect to room")return button;if(auto* found=findConnect(child))return found;}return nullptr;
+                };
+                auto* connect=findConnect(editor.get());check(connect!=nullptr,"saved room exposes the public Connect action");connect->onClick();
+                wait([&]{return !processor.directory.state().busy && processor.directory.state().rooms.size()==2;});
+                check(processor.directory.participant(unsaved).isNotEmpty(),"native Create/Connect action saves a previously unknown room for the signed-in account");
+                processor.stop();
+                juce::MemoryBlock projectState;processor.getStateInformation(projectState);
+                const std::string xml(static_cast<const char*>(projectState.getData()),projectState.getSize());
+                check(xml.find(password.toStdString())==std::string::npos && xml.find(processor.directory.participant(unsaved).toStdString())==std::string::npos,"DAW state contains neither account password nor participant credential");
+                processor.directory.request("/api/accounts/logout");
+                wait([&]{return !processor.directory.state().busy && !processor.directory.state().user.isObject();});
+                check(processor.directory.state().accounts.size()==1,"sign out forgets just the selected account");
+            }
+            check(!juce::File(juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_ACCOUNT_FILE",{})).loadFileAsString().contains(password),"native settings never contain the password");
+            std::cout<<"PASS: native login, room creation, rename, invitations, account switching, restore and logout\n";return 0;
+        }
         if(argc==4 && std::string(argv[1])=="--presence-probe") {
             const juce::String roomLabel="ShareStream-call-room-v1:"+juce::String(argv[2]);
             auto* value=new juce::DynamicObject;

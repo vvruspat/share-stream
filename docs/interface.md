@@ -1,9 +1,10 @@
 # Session interface
 
-The native plugin owns invitations and the music connection. Voice & screen
-opens the browser in that existing room. The browser does not generate rooms,
-show a room-code field, or provide a second invitation workflow. Opening the
-browser never requests microphone or screen permission.
+The native plugin owns the music connection. Native and browser clients share
+server accounts and a persistent named-room directory. Both can create rooms,
+save invitations, rename owned rooms and invite registered users. Voice & screen
+opens the browser in the selected native room. Opening the browser never requests
+microphone or screen permission. See [accounts and saved rooms](rooms.md).
 
 Native introductions use `stream.whitesquirrel.digital:48100/UDP`. New invites
 carry this hostname. Saved projects and legacy invitations containing the former
@@ -70,10 +71,13 @@ A separate HTTPS `/api/presence` control endpoint combines native and browser
 connections. It carries no music or screen data and cannot stop the audio
 engine. Native registration runs on its own worker; browser polling runs once
 per second. Source records expire after eight seconds without a heartbeat.
-Room hashes match the existing browser signaling room derivation. The service
-never receives the room encryption key and never returns participant credentials.
+Room hashes match the existing browser signaling room derivation. Presence and signaling receive only the room hash and never return participant
+credentials to peers. The separate authenticated saved-room directory stores room
+codes encrypted at rest and can decrypt them for account members.
 
-A per-installation random key is stored alongside native application settings
+For signed-in members, the directory supplies one stable private participant
+credential per account/room, shared across native and browser clients. For guests,
+a per-installation random key is stored alongside native application settings
 in `Share Stream/participant.key`. It derives a different private credential for
 each room. Native instances in the same installation/room and a browser opened
 from Voice & screen share this credential. Copy invite omits it. The browser

@@ -76,7 +76,7 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     send.onClick=[this]{auto c=processor.configuration();c.role=sharestream::Role::send;processor.setConfiguration(c);updateMode();timerCallback();};
     receive.onClick=[this]{auto c=processor.configuration();c.role=sharestream::Role::receive;processor.setConfiguration(c);updateMode();timerCallback();};
     send.setTooltip("Send music from this track. Your partner selects Listen.");receive.setTooltip("Receive your partner's music into this track.");
-    create.onClick=[this]{saveConfiguration();processor.start();timerCallback();};
+    create.onClick=[this]{saveConfiguration();rememberRoom();processor.start();timerCallback();};
     join.onClick=[this]{joinSession();};copy.onClick=[this]{copyInvite();};paste.onClick=[this]{pasteInvite();};
     newRoom.onClick=[this]{room.setText(sharestream::newRoomCode());};
     connect.onClick=[this]{processor.stop();timerCallback();};
@@ -94,7 +94,17 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
             else if(choice==2)safe->updater->check();else if(choice==3)safe->updater->setAutomatic(!safe->updater->state().automatic);
         });
     };
-    setSize(640,780);updateMode();startTimerHz(20);timerCallback();
+    for(auto* combo:{&accountList,&roomList})content.addAndMakeVisible(combo);
+    accountList.setTitle("Account");roomList.setTitle("Saved rooms");
+    for(auto* button:{&accountLogin,&accountLogout,&createSaved,&saveSaved,&renameSaved,&inviteSaved})content.addAndMakeVisible(button);
+    content.addAndMakeVisible(directoryStatus);labelStyle(directoryStatus,12);
+    accountLogin.onClick=[this]{accountDialog();};
+    accountLogout.onClick=[this]{processor.stop();processor.directory.request("/api/accounts/logout");};
+    accountList.onChange=[this]{processor.stop();processor.directory.select(accountList.getSelectedId()-1);room.setText(sharestream::newRoomCode());};
+    roomList.onChange=[this]{const auto state=processor.directory.state();if(auto* list=state.rooms.getArray()){const auto i=roomList.getSelectedId()-1;if(i>=0 && i<list->size())selectRoom((*list)[i]);}};
+    createSaved.onClick=[this]{roomDialog(0);};saveSaved.onClick=[this]{roomDialog(1);};
+    renameSaved.onClick=[this]{roomDialog(2);};inviteSaved.onClick=[this]{roomDialog(3);};
+    setSize(640,900);updateMode();startTimerHz(20);timerCallback();
 }
 ShareStreamEditor::~ShareStreamEditor(){stopTimer();viewport.setViewedComponent(nullptr,false);setLookAndFeel(nullptr);}
 void ShareStreamEditor::saveConfiguration(){
@@ -113,12 +123,15 @@ void ShareStreamEditor::copyInvite(){
     saveConfiguration();const auto c=processor.configuration();const auto link=sharestream::invitationLink({c.code,sharestream::RelayAddress{c.host,c.port}});
     if(link.empty()){notice="Enter a valid session and server in settings.";noticeTicks=60;return;}
     juce::SystemClipboard::copyTextToClipboard(link);
+    rememberRoom();
     if(!processor.statistics().running)processor.start();notice="Invite copied. Voice and screen use this session too.";noticeTicks=60;timerCallback();
 }
 bool ShareStreamEditor::loadInvite(const juce::String& value){
     const auto invite=sharestream::parseInvitation(value.toStdString());if(!invite)return false;
     processor.stop();if(invite->relay){server.setText(invite->relay->host,false);port.setText(juce::String(invite->relay->port),false);}
-    room.setText(invite->code,false);saveConfiguration();processor.start();notice="Joining the session...";noticeTicks=40;timerCallback();return true;
+    room.setText(invite->code,false);saveConfiguration();
+    rememberRoom();
+    processor.start();notice="Joining the session...";noticeTicks=40;timerCallback();return true;
 }
 void ShareStreamEditor::pasteInvite(){if(!loadInvite(juce::SystemClipboard::getTextFromClipboard())){notice="Copy a Share Stream invite or session code first.";noticeTicks=60;}}
 void ShareStreamEditor::joinSession(){
@@ -129,7 +142,62 @@ void ShareStreamEditor::joinSession(){
         if(safe && result==1 && !safe->loadInvite(dialog->getTextEditorContents("invite"))){safe->notice="That invitation is not valid. Try Join session again.";safe->noticeTicks=80;}
     }),true);
 }
+void ShareStreamEditor::accountDialog(){
+    auto* dialog=new juce::AlertWindow("Share Stream account","Sign in or create an account. Use a password of at least 10 characters. Saved accounts can be switched on this device.",juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("username",{},"Username");dialog->addTextEditor("password",{},"Password",true);
+    dialog->addButton("Sign in",1,juce::KeyPress(juce::KeyPress::returnKey));dialog->addButton("Create account",2);dialog->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe=juce::Component::SafePointer<ShareStreamEditor>(this),dialog](int result){
+        if(!safe || result==0)return;
+        auto* body=new juce::DynamicObject;body->setProperty("username",dialog->getTextEditorContents("username"));body->setProperty("password",dialog->getTextEditorContents("password"));
+        safe->processor.stop();safe->processor.directory.request(result==2?"/api/accounts/register":"/api/accounts/login",juce::var(body));
+    }),true);
+}
+void ShareStreamEditor::selectRoom(const juce::var& saved){
+    if(room.getText()!=saved["code"].toString())processor.stop();server.setText(saved["host"].toString(),false);port.setText(saved["port"].toString(),false);room.setText(saved["code"].toString(),false);saveConfiguration();
+    notice="Room selected. Connect to room starts music; Voice & screen opens chat.";noticeTicks=100;
+}
+void ShareStreamEditor::rememberRoom(){
+    const auto c=processor.configuration();
+    if(!processor.directory.state().user.isObject() || processor.directory.participant(c.code).isNotEmpty())return;
+    auto* body=new juce::DynamicObject;body->setProperty("code",juce::String(c.code));body->setProperty("host",juce::String(c.host));body->setProperty("port",c.port);
+    processor.directory.request("/api/rooms/accept",juce::var(body));
+}
+void ShareStreamEditor::roomDialog(int action){
+    const auto state=processor.directory.state();juce::var selected;
+    if(auto* list=state.rooms.getArray())for(const auto& item:*list)if(item["code"].toString()==room.getText())selected=item;
+    if(action>=2 && !selected.isObject())return;
+    const juce::String title=action==0?"Create room":action==1?"Save room":action==2?"Rename room":"Invite user";
+    auto* dialog=new juce::AlertWindow(title,action==3?"The room will appear in this user's saved rooms. Anyone with Copy invite can also save and join it.":"Rooms remain saved when everyone disconnects.",juce::MessageBoxIconType::NoIcon);
+    dialog->addTextEditor("value",action==2?selected["name"].toString():juce::String(),action==3?"Username":"Room name");
+    dialog->addButton(action==3?"Invite":"Save",1,juce::KeyPress(juce::KeyPress::returnKey));dialog->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
+    dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe=juce::Component::SafePointer<ShareStreamEditor>(this),dialog,action,selected](int result){
+        if(!safe || result!=1)return;
+        auto* body=new juce::DynamicObject;const auto value=dialog->getTextEditorContents("value");
+        body->setProperty(action==3?"username":"name",value);
+        juce::String path="/api/rooms",method="POST";
+        if(action<2){const auto c=safe->processor.configuration();body->setProperty("code",action==0?juce::String(sharestream::newRoomCode()):juce::String(c.code));body->setProperty("host",juce::String(c.host));body->setProperty("port",c.port);if(action==1)path+="/accept";}
+        else {path+="/"+selected["id"].toString();if(action==3)path+="/invitations";else method="PATCH";}
+        safe->processor.directory.request(path,juce::var(body),method);
+    }),true);
+}
 void ShareStreamEditor::timerCallback(){
+    const auto directory=processor.directory.state();
+    const auto fingerprint=juce::JSON::toString(directory.accounts)+juce::JSON::toString(directory.rooms)+directory.user["id"].toString()+room.getText();
+    if(fingerprint!=directoryFingerprint){
+        directoryFingerprint=fingerprint;accountList.clear(juce::dontSendNotification);accountList.addItem("Guest / choose account",1);int selectedAccount=1,index=2;
+        if(auto* list=directory.accounts.getArray())for(const auto& item:*list){accountList.addItem(item["user"]["username"].toString(),index);if(item["user"]["id"]==directory.user["id"])selectedAccount=index;++index;}
+        accountList.setSelectedId(selectedAccount,juce::dontSendNotification);roomList.clear(juce::dontSendNotification);int selectedRoom=0;index=1;
+        if(auto* list=directory.rooms.getArray())for(const auto& item:*list){roomList.addItem(item["name"].toString(),index);if(item["code"].toString()==room.getText())selectedRoom=index;++index;}
+        roomList.setTextWhenNothingSelected("Choose a saved room");roomList.setSelectedId(selectedRoom,juce::dontSendNotification);
+    }
+    if(directory.selection!=directorySelection){directorySelection=directory.selection;if(directory.selected.isObject())selectRoom(directory.selected);}
+    const bool signedIn=directory.user.isObject();bool owner=false;
+    if(auto* list=directory.rooms.getArray())for(const auto& item:*list)if(item["code"].toString()==room.getText())owner=static_cast<bool>(item["owner"]);
+    for(auto* button:{&createSaved,&saveSaved})button->setEnabled(signedIn && !directory.busy);
+    for(auto* button:{&renameSaved,&inviteSaved})button->setEnabled(owner && !directory.busy);
+    accountList.setEnabled(!directory.busy);roomList.setEnabled(signedIn && !directory.busy);accountLogin.setEnabled(!directory.busy);accountLogout.setEnabled(signedIn && !directory.busy);
+    directoryStatus.setText(directory.busy?"Updating rooms...":directory.error.isNotEmpty()?directory.error:directory.notice.isNotEmpty()?directory.notice:signedIn?"Saved rooms stay available after everyone leaves. Two people can connect at a time.":"Sign in to keep rooms and invite users. Guest invitations still work.",juce::dontSendNotification);
+
     const auto u=updater->state();update.setButtonText(u.available?"Update available":"Updates");update.setTooltip(u.text);update.setEnabled(!u.busy);
     if(u.ready && updater->launch(processor.standalone())){
 #if JUCE_MAC || JUCE_WINDOWS
@@ -138,11 +206,14 @@ void ShareStreamEditor::timerCallback(){
     }
     lastStats=processor.statistics();const bool running=lastStats.running;
     for(auto* f:{&server,&port,&room})f->setReadOnly(running);newRoom.setEnabled(!running);buffer.setEnabled(!running);
+    bool savedRoom=false;const auto dir=processor.directory.state();if(auto* list=dir.rooms.getArray())for(const auto& item:*list)if(item["code"].toString()==room.getText())savedRoom=true;
+    create.setButtonText(savedRoom?"Connect to room":"Create session");
+    create.setEnabled(!directory.busy);
     create.setVisible(!running);join.setVisible(!running);copy.setVisible(running);connect.setVisible(running);
     updateMode();
     juce::String message;
     if(!lastStats.error.empty())message=lastStats.error;
-    else if(!running)message="Create a session or join your partner.";
+    else if(!running)message=savedRoom?"Connect to this room whenever you are ready.":"Create a session or join your partner.";
     else if(lastStats.waitingForAudio)message="Waiting for DAW audio - enable playback or monitoring.";
     else if(!lastStats.relay && !lastStats.direct)message="Connecting...";
     else if(!lastStats.peer)message="Session open / waiting for your partner";
@@ -172,10 +243,13 @@ void ShareStreamEditor::paint(juce::Graphics& g){
     g.drawText(rate>0?juce::String(rate/1000,1)+" kHz / Stereo":"Stereo / Audio engine idle",28,getHeight()-45,220,28,juce::Justification::left);
 }
 void ShareStreamEditor::paintContent(juce::Graphics& g){
-    g.fillAll(background);g.setColour(panel);g.fillRoundedRectangle(28,16,584,48,12);g.drawRoundedRectangle(28,16,584,48,12,1);
+    g.fillAll(background);
+    g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(11)));g.drawText("ACCOUNT",28,8,280,20,juce::Justification::left);g.drawText("SAVED ROOMS",28,72,280,20,juce::Justification::left);
+    const juce::Graphics::ScopedSaveState saved(g);g.addTransform(juce::AffineTransform::translation(0,218));
+    g.setColour(panel);g.fillRoundedRectangle(28,16,584,48,12);g.drawRoundedRectangle(28,16,584,48,12,1);
     g.setColour(panel);g.fillRoundedRectangle(28,86,584,154,12);g.setColour(border);g.drawRoundedRectangle(28,86,584,154,12,1);
     g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(11)));g.drawText("PRIVATE SESSION",48,102,520,22,juce::Justification::left);
-    g.setColour(text);g.setFont(juce::Font(juce::FontOptions(25).withStyle("Bold")));g.drawText(lastStats.running?"Music session":"Make room for the mix.",48,127,530,34,juce::Justification::left);
+    g.setColour(text);g.setFont(juce::Font(juce::FontOptions(25).withStyle("Bold")));juce::String title=lastStats.running?"Music session":"Make room for the mix.";const auto directory=processor.directory.state();if(auto* list=directory.rooms.getArray())for(const auto& item:*list)if(item["code"].toString()==room.getText())title=item["name"].toString();g.drawText(title,48,127,530,34,juce::Justification::left,true);
     g.setColour(border);g.drawHorizontalLine(262,28,612);
     g.setColour(text);g.setFont(juce::Font(juce::FontOptions(15)));g.drawText("Participants / "+juce::String(people.size()),28,276,300,24,juce::Justification::left);
     int y=316;const auto self=processor.participantId();
@@ -199,7 +273,7 @@ void ShareStreamEditor::paintContent(juce::Graphics& g){
 void ShareStreamEditor::resized(){
     const int width=640;viewport.setBounds(0,81,width,getHeight()-138);
     monitorY=330+static_cast<int>(people.size())*58;settingsY=monitorY+134;
-    content.setSize(width,settingsY+(settingsOpen?354:60));
+    content.setSize(width,settingsY+(settingsOpen?354:60)+218);
     send.setBounds(34,22,282,36);receive.setBounds(processor.standalone()?34:324,22,processor.standalone()?572:282,36);
     status.setBounds(48,166,544,28);create.setBounds(48,200,266,34);join.setBounds(326,200,266,34);copy.setBounds(48,200,342,34);connect.setBounds(402,200,190,34);
     monitor.setBounds(42,monitorY+26,570,44);gain.setBounds(480,monitorY,132,26);peak.setBounds(400,monitorY+73,212,20);hint.setBounds(28,monitorY+100,584,20);
@@ -211,5 +285,8 @@ void ShareStreamEditor::resized(){
     roomLabel.setBounds(28,y+78,280,18);room.setBounds(28,y+101,438,40);newRoom.setBounds(478,y+101,134,40);
     qualityLabel.setBounds(28,y+158,140,20);quality.setBounds(176,y+151,180,34);bufferLabel.setBounds(378,y+158,114,20);buffer.setBounds(498,y+151,114,34);
     paste.setBounds(28,y+201,160,32);audioSettings.setBounds(202,y+201,170,32);stats.setBounds(28,y+245,584,20);
+    for(auto* child:content.getChildren())child->setTopLeftPosition(child->getX(),child->getY()+218);
+    accountList.setBounds(28,30,300,34);accountLogin.setBounds(340,30,132,34);accountLogout.setBounds(484,30,128,34);
+    roomList.setBounds(28,94,584,34);createSaved.setBounds(28,140,137,32);saveSaved.setBounds(177,140,137,32);renameSaved.setBounds(326,140,137,32);inviteSaved.setBounds(475,140,137,32);directoryStatus.setBounds(28,178,584,28);
     update.setBounds(300,getHeight()-44,100,32);collaboration.setBounds(424,getHeight()-46,188,36);
 }

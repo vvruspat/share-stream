@@ -8,7 +8,10 @@ services:
       PUBLIC_ORIGIN: https://stream.whitesquirrel.digital
       TURN_HOST: stream.whitesquirrel.digital
       TURN_SECRET_FILE: /run/secrets/turn-secret
-    volumes: [/opt/share-stream/collaboration/turn-secret:/run/secrets/turn-secret:ro]
+      DATA_DIR: /app/data
+    volumes:
+      - /opt/share-stream/collaboration/turn-secret:/run/secrets/turn-secret:ro
+      - directory-data:/app/data
     expose: ["48101"]
     read_only: true
     tmpfs: /tmp:size=16m
@@ -25,3 +28,5 @@ services:
     security_opt: [no-new-privileges:true]
     mem_limit: 256m
     cpus: 1
+volumes:
+  directory-data:
