@@ -25,6 +25,16 @@ The macOS job first notarizes/staples the three bundles, then seals them in Setu
 
 ### Applications first, backend later
 
+The 0.5.0 rollout completed on 2026-10-22: the applications were published first,
+then the trusted helper was updated and the backend-only workflow deployed the
+same `3c27dd05d6612aa0e65d19e7af807aed9c755f27` revision. Production health,
+the persistent `/app/data` volume, database/key permissions, browser assets and
+unauthenticated room protection were checked. Eight native peers passed stereo
+audio, late-join and rejoin checks through the production relay in all three
+codecs. Direct P2P was covered locally; this network used relay fallback.
+Account persistence and native/browser handoff passed isolated integration tests;
+no permanent test accounts were added to production.
+
 The checked-in `scripts/ci/release-plan.json` can defer backend deployment for one
 exact version. Version 0.5.0 uses `deploy_backend: false` because the first saved-room
 deployment needs an administrator to update the trusted server helper. The tagged
@@ -33,10 +43,10 @@ macOS and verifies all published assets. It skips production deployment only for
 that explicitly named version. A missing plan or a different version uses the
 normal deploy-before-publication process.
 
-The native applications can be installed immediately, but production remains on
-0.4.5 until the server update: guest sessions keep the existing two-person behavior;
-accounts, saved rooms, larger groups, the new browser UI and account handoff wait
-for the backend. This limitation must appear prominently in the release notes.
+During a deferred rollout, native applications can be installed immediately, but
+production retains the previous server behavior until its update. Any features
+waiting for the backend must be called out prominently in the release notes until
+that update is complete.
 
 When administrator access is available:
 
