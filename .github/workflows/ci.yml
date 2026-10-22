@@ -10,8 +10,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  scope:
+    name: Native build scope
+    runs-on: ubuntu-24.04
+    outputs:
+      cross_platform: ${{ steps.scope.outputs.cross_platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: scope
+        run: python3 scripts/ci/build_platforms.py
   platforms:
-    if: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/main' }}
+    needs: scope
+    if: ${{ needs.scope.outputs.cross_platform == 'true' && (github.event_name == 'pull_request' || github.ref == 'refs/heads/main') }}
     uses: ./.github/workflows/native-platforms.yml
     with:
       tests_only: ${{ github.event_name == 'pull_request' }}

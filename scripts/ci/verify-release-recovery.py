@@ -6,6 +6,7 @@ import re
 import subprocess
 import urllib.request
 from release_policy import deployment_for_revision
+from build_platforms import cross_platform_for_revision, EXTRA_JOBS
 
 REPO = 'vvruspat/share-stream'
 REQUIRED = {
@@ -17,13 +18,16 @@ REQUIRED = {
 DEPLOY_JOB = 'Deploy backend through Coolify'
 
 
-def validate(tag, run, jobs, sha, health, deploy_backend=True):
+def validate(tag, run, jobs, sha, health, deploy_backend=True, cross_platform=True):
     if (run['repository']['full_name'] != REPO or run['path'] != '.github/workflows/release.yml'
             or run['head_sha'] != sha or run['head_branch'] != tag or run['status'] != 'completed'):
         raise RuntimeError('Recovery run does not match the immutable release tag')
     successful = {job['name'] for job in jobs if job['conclusion'] == 'success'}
-    if not REQUIRED.issubset(successful):
+    required = REQUIRED if cross_platform else REQUIRED - EXTRA_JOBS
+    if not required.issubset(successful):
         raise RuntimeError('Compilation, tests, or signing have not succeeded')
+    if not cross_platform and any(job['name'] in EXTRA_JOBS and job['conclusion'] != 'skipped' for job in jobs):
+        raise RuntimeError('Native builds do not match the tagged platform profile')
     deployments = [job for job in jobs if job['name'] == DEPLOY_JOB]
     if len(deployments) != 1 or deployments[0]['conclusion'] != ('success' if deploy_backend else 'skipped'):
         raise RuntimeError('Deployment does not match the immutable release plan')
@@ -45,10 +49,14 @@ if __name__ == '__main__':
     sha = subprocess.check_output(['git', 'rev-parse', f'{tag}^{{commit}}'], text=True).strip()
     subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], check=True)
     deploy_backend = deployment_for_revision(tag[1:], sha)
+    cross_platform = cross_platform_for_revision(sha)
     health = {}
     if deploy_backend:
         with urllib.request.urlopen('https://stream.whitesquirrel.digital/api/health', timeout=15) as response:
             health = json.load(response)
-    validate(tag, api(f'actions/runs/{run_id}'), api(f'actions/runs/{run_id}/jobs?filter=latest&per_page=100')['jobs'], sha, health, deploy_backend)
+    validate(tag, api(f'actions/runs/{run_id}'), api(f'actions/runs/{run_id}/jobs?filter=latest&per_page=100')['jobs'], sha, health, deploy_backend, cross_platform)
+    if os.environ.get('GITHUB_OUTPUT'):
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write(f'cross_platform={str(cross_platform).lower()}\n')
     rollout = 'deployment verified' if deploy_backend else 'backend deferred by tagged release plan'
     print(f'Validated tested and signed artifacts ({rollout}): {tag} / {sha} / run {run_id}')
