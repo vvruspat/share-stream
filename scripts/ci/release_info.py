@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 from release_policy import deployment_for_checkout
+from build_platforms import cross_platform_for_checkout
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,7 +28,8 @@ def release_info(tag=None):
         subprocess.run(['git', 'merge-base', '--is-ancestor', sha, 'origin/main'], cwd=ROOT, check=True)
     return dict(version=version, tag=f'v{version}', sha=sha,
                 image=f'share-stream-call:{version}-{sha[:12]}',
-                deploy_backend=deployment_for_checkout(version))
+                deploy_backend=deployment_for_checkout(version),
+                cross_platform=cross_platform_for_checkout())
 
 
 if __name__ == '__main__':

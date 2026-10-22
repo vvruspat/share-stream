@@ -33,28 +33,29 @@ class PublicationTests(unittest.TestCase):
                 self.assertTrue(publisher.get_release('v0.4.1')['draft'])
                 self.assertEqual(query.call_args.args[0][-1], 'repos/vvruspat/share-stream/releases/417')
 
-    def fixture(self, root, draft):
+    def fixture(self, root, draft, assets=None):
+        assets = publisher.ASSETS if assets is None else assets
         dist = root/'dist'
         dist.mkdir()
-        for name in publisher.ASSETS + ['NOTARIZATION.json']:
+        for name in assets + ['NOTARIZATION.json']:
             (dist/name).write_bytes(name.encode())
-        hashes = {name: hashlib.sha256((dist/name).read_bytes()).hexdigest() for name in publisher.ASSETS}
+        hashes = {name: hashlib.sha256((dist/name).read_bytes()).hexdigest() for name in assets}
         (dist/'SHA256SUMS.txt').write_text(''.join(f'{digest}  {name}\n' for name, digest in hashes.items()))
         assets = []
         for file in dist.iterdir():
             assets.append(dict(name=file.name, digest='sha256:'+hashlib.sha256(file.read_bytes()).hexdigest(), size=file.stat().st_size))
         return dict(id=417, tag_name='v0.4.1', draft=draft, assets=assets)
 
-    def run_existing(self, draft, bad=False):
+    def run_existing(self, draft, bad=False, cross_platform=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            release = self.fixture(root, draft)
+            release = self.fixture(root, draft, publisher.ASSETS if cross_platform else publisher.MACOS_ASSETS)
             if bad:
                 release['assets'][0]['digest'] = 'sha256:'+'0'*64
             previous = Path.cwd()
             os.chdir(root)
             try:
-                with patch.dict(os.environ, RELEASE_TAG='v0.4.1'), patch.object(publisher, 'get_release', return_value=release):
+                with patch.dict(os.environ, RELEASE_TAG='v0.4.1', CROSS_PLATFORM=str(cross_platform).lower()), patch.object(publisher, 'get_release', return_value=release):
                     with patch.object(subprocess, 'run') as mutate:
                         if bad:
                             with self.assertRaisesRegex(RuntimeError, 'will not be overwritten'):
@@ -75,6 +76,24 @@ class PublicationTests(unittest.TestCase):
 
     def test_changed_published_asset_is_never_overwritten(self):
         self.run_existing(False, bad=True)
+
+    def test_mac_only_draft_and_published_release_need_no_windows_or_linux_assets(self):
+        self.run_existing(True, cross_platform=False)
+        self.run_existing(False, cross_platform=False)
+
+    def test_mac_only_profile_does_not_weaken_full_release_completeness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root, True, publisher.MACOS_ASSETS)
+            previous = Path.cwd()
+            os.chdir(root)
+            try:
+                with patch.dict(os.environ, RELEASE_TAG='v0.4.1', CROSS_PLATFORM='true'), patch.object(publisher, 'get_release') as query:
+                    with self.assertRaises(FileNotFoundError):
+                        publisher.main()
+                    query.assert_not_called()
+            finally:
+                os.chdir(previous)
 
 
 class RecoveryTests(unittest.TestCase):
@@ -100,6 +119,24 @@ class RecoveryTests(unittest.TestCase):
         for changed, live in [(dict(run, head_sha='b'*40), health), (run, dict(health, revision='b'*40))]:
             with self.assertRaises(RuntimeError):
                 recovery.validate('v0.4.1', changed, jobs, sha, live)
+
+    def test_mac_only_recovery_requires_mac_signing_and_accepts_only_skipped_extra_platforms(self):
+        run, jobs, sha, health = self.fixture()
+        for job in jobs:
+            if job['name'] in recovery.EXTRA_JOBS:
+                job['conclusion'] = 'skipped'
+        recovery.validate('v0.4.1', run, jobs, sha, health, cross_platform=False)
+        with self.assertRaisesRegex(RuntimeError, 'signing'):
+            recovery.validate('v0.4.1', run, jobs, sha, health)
+        mac = next(job for job in jobs if job['name'] == 'Build, sign and notarize macOS')
+        mac['conclusion'] = 'skipped'
+        with self.assertRaisesRegex(RuntimeError, 'signing'):
+            recovery.validate('v0.4.1', run, jobs, sha, health, cross_platform=False)
+        mac['conclusion'] = 'success'
+        extra = next(job for job in jobs if job['name'] in recovery.EXTRA_JOBS)
+        extra['conclusion'] = 'success'
+        with self.assertRaisesRegex(RuntimeError, 'platform profile'):
+            recovery.validate('v0.4.1', run, jobs, sha, health, cross_platform=False)
 
     def test_deferred_release_recovery_requires_skipped_deploy_and_all_other_gates(self):
         run, jobs, sha, _ = self.fixture()

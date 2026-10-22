@@ -8,6 +8,29 @@ images are built/uploaded. Full artifact builds run after a push/merge to main.
 Publication is a separate tagged-release step, also restricted to commits
 already merged into main.
 
+## Temporary macOS build scope
+
+`scripts/ci/build-platforms.json` currently selects only `macos` to shorten the
+test/fix cycle. PR and main CI skip Windows, Ubuntu and Fedora native jobs. Web
+and relay checks, backend builds, macOS tests, universal AU/VST3/receiver/Setup,
+Developer ID signing, notarization and Coolify deployment keep their usual gates.
+PRs still run tests only; installers are built after merging into main.
+
+Tagged releases publish the three macOS ZIPs, `SHA256SUMS.txt` and
+`NOTARIZATION.json`. Publication and recovery accept the skipped platforms only
+when this profile selects macOS. Recovery reads the immutable tag's profile;
+older tags without a profile retain all six required downloads and platform gates.
+Existing Windows/Linux release assets remain available on their original tags.
+
+To restore all platforms, change that one file to:
+
+```json
+{"platforms": ["macos", "windows", "ubuntu", "fedora"]}
+```
+
+Merge the change before tagging the next full release. No signing or deployment
+credentials need to change.
+
 ## Create a release
 
 1. Update the version in `CMakeLists.txt`, `web/package.json`, the root and `packages[""]` entries of `web/package-lock.json`, `web/shared/protocol.ts`, and `web/compose.yaml`.
@@ -19,9 +42,9 @@ already merged into main.
    git push origin v0.4.4
    ```
 
-The **Release** workflow validates the tag against all versions and `origin/main`, tests web/browser/relay behavior, builds the backend and native binaries on macOS, Windows, Ubuntu and Fedora, and smoke-tests the Windows/Linux installers. macOS bundles and Setup are signed and notarized using the owner's existing Developer ID Application identity. Windows Setup is currently unsigned. Linux packages retain apt/rpm ownership and resolve native runtime dependencies.
+The **Release** workflow validates the tag against all versions and `origin/main`, tests web/browser/relay behavior, builds the backend and the selected native platforms, and smoke-tests selected Windows/Linux installers. macOS bundles and Setup are signed and notarized using the owner's existing Developer ID Application identity. Windows Setup is currently unsigned. Linux packages retain apt/rpm ownership and resolve native runtime dependencies.
 
-The macOS job first notarizes/staples the three bundles, then seals them in Setup's signed resources and notarizes/staples Setup separately. After all platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all six downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
+The macOS job first notarizes/staples the three bundles, then seals them in Setup's signed resources and notarizes/staples Setup separately. After all selected platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all selected downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
 
 ### Applications first, backend later
 

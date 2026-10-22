@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Publish atomically only after every platform and GitHub asset digest exists."""
+"""Publish atomically only after every selected platform and asset digest exists."""
 import hashlib
 import json
 import os
 import subprocess
 from pathlib import Path
+from build_platforms import MACOS_ASSETS, EXTRA_ASSETS, publish_cross_platform
 
-ASSETS = ['ShareStream-Setup-macOS.zip', 'ShareStream-macOS.zip',
-          'ShareStream-Receiver-macOS.zip', 'ShareStream-Setup-Windows-x64.exe',
-          'ShareStream-Ubuntu-amd64.deb', 'ShareStream-Fedora-x86_64.rpm']
+ASSETS = MACOS_ASSETS + EXTRA_ASSETS
 REPO = 'vvruspat/share-stream'
 
 
@@ -45,13 +44,14 @@ def verify_assets(release, hashes, dist, complete=True):
 def main():
     tag = os.environ['RELEASE_TAG']
     dist = Path('dist')
-    hashes = {name: hashlib.sha256((dist/name).read_bytes()).hexdigest() for name in ASSETS}
+    assets = MACOS_ASSETS + (EXTRA_ASSETS if publish_cross_platform(os.environ.get('CROSS_PLATFORM', 'true')) else [])
+    hashes = {name: hashlib.sha256((dist/name).read_bytes()).hexdigest() for name in assets}
     # Check the separately authenticated notarization job's macOS checksums too.
     for line in (dist/'SHA256SUMS.txt').read_text().splitlines():
         digest, name = line.split(maxsplit=1)
         assert hashes[name.lstrip('*')] == digest, f'Checksum mismatch: {name}'
     (dist/'SHA256SUMS.txt').write_text(''.join(f'{digest}  {name}\n' for name, digest in hashes.items()))
-    files = ASSETS + ['SHA256SUMS.txt', 'NOTARIZATION.json']
+    files = assets + ['SHA256SUMS.txt', 'NOTARIZATION.json']
     hashes.update({name: hashlib.sha256((dist/name).read_bytes()).hexdigest() for name in files if name not in hashes})
     release = get_release(tag)
     if release is None:
