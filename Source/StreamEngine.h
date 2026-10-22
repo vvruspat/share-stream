@@ -18,6 +18,7 @@ struct Connection {
 };
 struct Statistics {
     bool running = false, relay = false, peer = false, direct = false, waitingForAudio = false;
+    int peers = 0, directPeers = 0;
     double rttMs = 0, directRttMs = 0, jitterMs = 0;
     uint64_t packets = 0, lost = 0, underruns = 0, overruns = 0, rejected = 0, late = 0;
     float inputPeak = 0, outputPeak = 0;

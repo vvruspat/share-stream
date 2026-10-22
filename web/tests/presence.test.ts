@@ -29,7 +29,9 @@ test("plugin and browser share one stable participant identity, without leaking 
   assert.ok(!JSON.stringify(people).includes(token));
   const other = registry.update({ ...plugin, token: "c".repeat(32), music: "listening" });
   assert.equal(other.length, 2);
-  assert.throws(() => registry.update({ ...plugin, token: "d".repeat(32) }), /two participants/);
+  for (let i = 1; i <= 6; i++)
+    registry.update({ ...plugin, token: i.toString(16).padStart(32, "0") });
+  assert.throws(() => registry.update({ ...plugin, token: "d".repeat(32) }), /eight participants/);
 });
 test("each source leaves independently; voice-only and expired participants reflect real presence", () => {
   let now = 100000;

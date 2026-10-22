@@ -7,6 +7,7 @@ import { PresenceRegistry } from "./presence.js";
 import { Directory, DirectoryError } from "./directory.js";
 import {
   WEB_VERSION,
+  MAX_PARTICIPANTS,
   SIGNAL_VERSION,
   type IceServer,
   type JoinFrame,
@@ -184,7 +185,7 @@ export function createService({
         previous = presenceRates.get(ip);
       const rate = !previous || now - previous.start > 10000 ? { start: now, count: 0 } : previous;
       presenceRates.set(ip, rate);
-      if (++rate.count > 100) {
+      if (++rate.count > 240) {
         res.writeHead(429, headers).end();
         return;
       }
@@ -259,7 +260,7 @@ export function createService({
     if (
       req.url !== "/signal" ||
       !(typeof origin === "string" ? [origin] : origin).includes(req.headers.origin || "") ||
-      wss.clients.size >= 256
+      wss.clients.size >= 512
     ) {
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
@@ -269,7 +270,7 @@ export function createService({
       .trim();
     const now = Date.now(),
       rate = joins.get(ip);
-    if (rate && now - rate.start < 60000 && rate.count >= 30) {
+    if (rate && now - rate.start < 60000 && rate.count >= 120) {
       socket.destroy();
       return;
     }
@@ -297,7 +298,7 @@ export function createService({
           windowStart = Date.now();
           count = 0;
         }
-        if (++count > 120) throw new Error("Rate limit");
+        if (++count > 400) throw new Error("Rate limit");
         const m: unknown = JSON.parse(
           (Buffer.isBuffer(raw)
             ? raw
@@ -330,8 +331,8 @@ export function createService({
           // authenticates with the same private participant credential. Replace
           // its old transport rather than consuming the partner's room slot.
           const previous = members && [...members].find(([, entry]) => sameCredential(entry));
-          if (!previous && members && members.size >= 2) {
-            send(ws, { type: "error", message: "This room already has two people." });
+          if (!previous && members && members.size >= MAX_PARTICIPANTS) {
+            send(ws, { type: "error", message: `This room is full (${MAX_PARTICIPANTS} people).` });
             ws.close(4003);
             return;
           }

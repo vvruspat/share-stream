@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Share Stream v1: bounded two-party UDP relay; no audio decryption keys."""
+"""Share Stream v1: bounded group UDP introduction/relay; no audio decryption keys."""
 import argparse
 import asyncio
 import hashlib
@@ -15,7 +15,9 @@ HEADER = struct.Struct("!4sBBH16s16sQ")
 CONTROL_SIZE, AUDIO_SIZE = 64, 1048
 HELLO, COOKIE, JOIN, READY, AUDIO, PING, PONG, LEAVE = range(1, 9)
 ENDPOINT = 9
-ENCODED_AUDIO, CAPABILITIES = 12, 13
+ENCODED_AUDIO, CAPABILITIES, FORWARD = 12, 13, 14
+GROUP_VERSION = 0x53534738
+MAX_PARTICIPANTS = 8
 
 
 @dataclass
@@ -26,6 +28,7 @@ class Peer:
     role: int
     seen: float
     budget_at: float
+    group: bool = False
     budget: float = 700
 
 
@@ -52,8 +55,8 @@ class Relay(asyncio.DatagramProtocol):
     def remove(self, peer):
         self.peers.pop((peer.room, peer.identity), None)
         room = self.rooms.get(peer.room)
-        if room and room.get(peer.role) is peer:
-            del room[peer.role]
+        if room and room.get(peer.identity) is peer:
+            del room[peer.identity]
             if not room:
                 del self.rooms[peer.room]
 
@@ -67,24 +70,26 @@ class Relay(asyncio.DatagramProtocol):
 
     def reply(self, header, kind, address, status=0):
         _, _, role, _, room, identity, sequence = header
-        partner = int((3-role) in self.rooms.get(room, {}))
+        partner = sum(p.role != role for p in self.rooms.get(room, {}).values())
         data = HEADER.pack(b"SST1", kind, role, 0, room, identity, sequence)
-        self.transport.sendto(data + bytes([status, partner]) + bytes(14), address)
+        self.transport.sendto(data + bytes([status, partner, 1]) + bytes(13), address)
         if status == 0 and partner:
             self.introduce(room)
 
     def introduce(self, room):
-        peers = self.rooms.get(room, {})
-        if 1 not in peers or 2 not in peers:
+        peers = list(self.rooms.get(room, {}).values())
+        senders = [p for p in peers if p.role == 1]
+        if not senders:
             return
-        for role in (1, 2):
-            owner, partner = peers[role], peers[3-role]
-            header = HEADER.pack(b"SST1", ENDPOINT, role, 0, room, owner.identity, 0)
-            endpoint = socket.inet_aton(partner.address[0]) + struct.pack("!H", partner.address[1])
-            self.transport.sendto(header+endpoint+partner.identity+bytes(10), owner.address)
+        sender = senders[0]
+        for listener in (p for p in peers if p.role == 2):
+            for owner, partner in ((sender, listener), (listener, sender)):
+                header = HEADER.pack(b"SST1", ENDPOINT, owner.role, 0, room, owner.identity, 0)
+                endpoint = socket.inet_aton(partner.address[0]) + struct.pack("!H", partner.address[1])
+                self.transport.sendto(header+endpoint+partner.identity+bytes(10), owner.address)
 
     def datagram_received(self, data, address):
-        if len(data) < CONTROL_SIZE or len(data) > 1200:
+        if len(data) < CONTROL_SIZE or len(data) > 1264:
             return
         now = time.monotonic()
         self.global_budget = min(20000, self.global_budget+(now-self.global_at)*20000)
@@ -94,12 +99,13 @@ class Relay(asyncio.DatagramProtocol):
         self.global_budget -= 1
         header = HEADER.unpack_from(data)
         magic, kind, role, reserved, room, identity, _ = header
-        if magic != b"SST1" or role not in (1, 2) or reserved or kind not in (*range(1, 9), ENCODED_AUDIO, CAPABILITIES):
+        if magic != b"SST1" or role not in (1, 2) or reserved or kind not in (*range(1, 9), ENCODED_AUDIO, CAPABILITIES, FORWARD):
             return
         if not ((kind == AUDIO and len(data) == AUDIO_SIZE)
                 or (kind == ENCODED_AUDIO and 93 <= len(data) <= 1200)
                 or (kind == CAPABILITIES and len(data) == 104)
-                or (kind not in (AUDIO, ENCODED_AUDIO, CAPABILITIES) and len(data) == CONTROL_SIZE)):
+                or (kind == FORWARD and 157 <= len(data) <= 1264)
+                or (kind not in (AUDIO, ENCODED_AUDIO, CAPABILITIES, FORWARD) and len(data) == CONTROL_SIZE)):
             return
         self.cleanup(now)
         if kind == HELLO:
@@ -112,9 +118,20 @@ class Relay(asyncio.DatagramProtocol):
                        for m in (minute, minute-1)):
                 return
             peers = self.rooms.get(room, {})
-            occupant = peers.get(role)
-            if occupant and (occupant.identity != identity or occupant.address != address):
+            occupant = peers.get(identity)
+            same_role = [p for p in peers.values() if p.role == role and p is not occupant]
+            if (occupant and (occupant.address != address or occupant.role != role)) or (role == 1 and same_role):
                 self.reply(header, READY, address, 2)
+                return
+            group = header[6] == GROUP_VERSION
+            sender = next((p for p in peers.values() if p.role == 1), None)
+            listeners = [p for p in peers.values() if p.role == 2]
+            if not occupant and ((role == 2 and listeners and sender and not sender.group)
+                                 or (role == 1 and len(listeners) > 1 and not group)):
+                self.reply(header, READY, address, 4)
+                return
+            if not occupant and (len(peers) >= MAX_PARTICIPANTS or (role == 2 and len(listeners) >= MAX_PARTICIPANTS-1)):
+                self.reply(header, READY, address, 3)
                 return
             if room not in self.rooms and len(self.rooms) >= self.max_rooms:
                 self.reply(header, READY, address, 3)
@@ -122,15 +139,16 @@ class Relay(asyncio.DatagramProtocol):
             if occupant:
                 occupant.seen = now
             else:
-                peer = Peer(address, room, identity, role, now, now)
-                self.rooms.setdefault(room, {})[role] = peer
+                peer = Peer(address, room, identity, role, now, now, group=group)
+                self.rooms.setdefault(room, {})[identity] = peer
                 self.peers[(room, identity)] = peer
             self.reply(header, READY, address)
             return
         peer = self.peers.get((room, identity))
         if peer is None or peer.address != address or peer.role != role:
             return
-        peer.budget = min(700, peer.budget+(now-peer.budget_at)*700)
+        limit = 700 * (MAX_PARTICIPANTS-1 if peer.role == 1 and peer.group else 1)
+        peer.budget = min(limit, peer.budget+(now-peer.budget_at)*limit)
         peer.budget_at = now
         if peer.budget < 1:
             return
@@ -141,13 +159,25 @@ class Relay(asyncio.DatagramProtocol):
         elif kind == LEAVE:
             self.remove(peer)
         elif kind == CAPABILITIES:
-            partner = self.rooms[room].get(3-role)
-            if partner:
-                self.transport.sendto(data, partner.address)
+            for partner in self.rooms[room].values():
+                if partner.role != role:
+                    self.transport.sendto(data, partner.address)
+        elif kind == FORWARD and role == 1 and peer.group:
+            target = self.rooms[room].get(data[48:64])
+            payload = data[64:]
+            if not target or target.role != 2 or len(payload) < 48:
+                return
+            inner = HEADER.unpack_from(payload)
+            if inner[:6] != (b"SST1", inner[1], 1, 0, room, identity):
+                return
+            if not ((inner[1] == AUDIO and len(payload) == AUDIO_SIZE)
+                    or (inner[1] == ENCODED_AUDIO and 93 <= len(payload) <= 1200)):
+                return
+            self.transport.sendto(payload, target.address)
         elif kind in (AUDIO, ENCODED_AUDIO) and role == 1:
-            partner = self.rooms[room].get(2)
-            if partner:
-                self.transport.sendto(data, partner.address)
+            for partner in self.rooms[room].values():
+                if partner.role == 2:
+                    self.transport.sendto(data, partner.address)
 
 
 async def main(host, port, max_rooms):

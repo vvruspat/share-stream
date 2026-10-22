@@ -1060,3 +1060,101 @@ test("saved rooms survive leave and reload, invitations and account switching", 
     await b.close();
   }
 });
+
+test("group mesh keeps every voice and screen connected across late join, departure and rejoin", async ({
+  browser,
+}) => {
+  const contexts: BrowserContext[] = [],
+    pages: Page[] = [];
+  const code = randomBytes(16).toString("hex");
+  const enter = async () => {
+    const context = await browser.newContext();
+    contexts.push(context);
+    await synthetic(context, 0.125);
+    const page = await context.newPage();
+    pages.push(page);
+    await page.goto(`/#room=${code}`);
+    await page.locator("#join").click();
+    return page;
+  };
+  const connected = async (page: Page, peers: number) => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            () =>
+              window.testPCs.filter(
+                (p) => p.connectionState !== "closed" && p.connectionState === "connected",
+              ).length,
+          ),
+        { timeout: 25000 },
+      )
+      .toBe(peers * 2);
+  };
+  const receiving = async (page: Page, kind: string, property: string, count: number) => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            async ({ kind, property }) => {
+              const reports = await Promise.all(
+                window.testPCs
+                  .filter((p) => p.connectionState !== "closed")
+                  .map((p) => p.getStats()),
+              );
+              return reports
+                .flatMap((report) => [...report.values()])
+                .filter((s) => s.type === "inbound-rtp" && s.kind === kind && s[property] > 500)
+                .length;
+            },
+            { kind, property },
+          ),
+        { timeout: 20000 },
+      )
+      .toBe(count);
+  };
+  try {
+    const a = await enter(),
+      b = await enter(),
+      c = await enter();
+    for (const page of [a, b, c]) {
+      await connected(page, 2);
+      await page.locator("#mic").click();
+    }
+    for (const page of [a, b, c]) await receiving(page, "audio", "bytesReceived", 2);
+    await a.locator("#share").click();
+    await expect.poll(() => stats(b, "video", "framesDecoded")).toBeGreaterThan(5);
+    await expect.poll(() => stats(c, "video", "framesDecoded")).toBeGreaterThan(5);
+    await b.locator("#share").click();
+    await expect(c.getByRole("combobox", { name: "View screen" })).toBeVisible();
+    await expect.poll(() => stats(c, "video", "framesDecoded")).toBeGreaterThan(15);
+    const d = await enter();
+    await connected(d, 3);
+    await receiving(d, "audio", "bytesReceived", 3);
+    expect(await d.evaluate(() => window.mediaRequests)).toEqual({ audio: 0, display: 0 });
+    await d.locator("#mic").click();
+    for (const page of [a, b, c]) {
+      await connected(page, 3);
+      await receiving(page, "audio", "bytesReceived", 3);
+      expect((await page.evaluate(() => window.mediaRequests)).audio).toBe(1);
+    }
+    await b.locator("#leave").click();
+    expect(
+      await b.evaluate(() => window.captureTracks.every((t) => t.readyState === "ended")),
+    ).toBe(true);
+    for (const page of [a, c, d]) {
+      await connected(page, 2);
+      await receiving(page, "audio", "bytesReceived", 2);
+    }
+    await expect(c.getByRole("combobox", { name: "View screen" })).toHaveCount(0);
+    await b.locator("#join").click();
+    await connected(b, 3);
+    await receiving(b, "audio", "bytesReceived", 3);
+    expect((await b.evaluate(() => window.mediaRequests)).audio).toBe(1);
+    await c.locator("#participants > button").click();
+    await expect(c.locator(".participant")).toHaveCount(4, { timeout: 10000 });
+    await c.screenshot({ path: "/tmp/share-stream-group-web.png", fullPage: true });
+  } finally {
+    for (const context of contexts) await context.close();
+  }
+});

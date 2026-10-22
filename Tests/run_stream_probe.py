@@ -10,8 +10,17 @@ from relay import Relay
 
 class LegacyRelay(Relay):
     """Model the published v0.4.1 relay, which only accepts Float32 audio."""
+    def reply(self, header, kind, address, status=0):
+        from relay import HEADER
+        _, _, role, _, room, identity, sequence = header
+        partner = int(any(p.role != role for p in self.rooms.get(room, {}).values()))
+        self.transport.sendto(HEADER.pack(b"SST1", kind, role, 0, room, identity, sequence)
+                              + bytes([status, partner]) + bytes(14), address)
+        if status == 0 and partner:
+            self.introduce(room)
+
     def datagram_received(self, data, address):
-        if len(data) >= 5 and data[4] in (12, 13):
+        if len(data) >= 5 and data[4] in (12, 13, 14):
             return
         super().datagram_received(data, address)
 

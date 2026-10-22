@@ -120,25 +120,26 @@ test("two-peer rooms relay opaque signals and isolate another room", async () =>
   b.ws.close();
   assert.equal((await a.next("left")).id, id(2));
 });
-test("third peer rejected; resume replaces only the authenticated old session", async () => {
+test("eight-peer limit and resume replace only the authenticated old session", async () => {
   const f = await fixture(),
     a = await f.peer(id(1)),
     b = await f.peer(id(2));
   await a.next("welcome");
   await a.next("peer");
   await b.next("welcome");
-  const c = await f.peer(id(3));
-  assert.match((await c.next("error")).message, /two people/);
+  for (let n = 3; n <= 8; n++) await (await f.peer(id(n))).next("welcome");
+  const c = await f.peer(id(9));
+  assert.match((await c.next("error")).message, /full.*8/);
   const close = once(a.ws, "close"),
     replacement = await f.peer(id(1));
   await replacement.next("welcome");
   assert.equal((await close)[0], 4001);
   await b.next("left");
   await b.next("peer");
-  assert.equal(f.rooms.get(room(1))!.size, 2);
+  assert.equal(f.rooms.get(room(1))!.size, 8);
   const intruder = await f.peer(id(1), room(1), id(88));
   assert.equal((await once(intruder.ws, "close"))[0], 1008);
-  assert.equal(f.rooms.get(room(1))!.size, 2);
+  assert.equal(f.rooms.get(room(1))!.size, 8);
 });
 test("a participant reopening chat replaces its old ID and leaves the partner's slot available", async () => {
   const f = await fixture(),
@@ -161,12 +162,12 @@ test("a participant reopening chat replaces its old ID and leaves the partner's 
   assert.equal((await partner.next("peer")).id, id(4));
   assert.deepEqual([...f.rooms.get(room(1))!.keys()], [id(3), id(4)]);
   const third = await f.peer(id(5));
-  assert.match((await third.next("error")).message, /two people/);
+  assert.deepEqual((await third.next("welcome")).peers, [id(3), id(4)]);
   const forged = await f.peer(id(4), room(1), id(202));
   assert.equal((await once(forged.ws, "close"))[0], 1008);
   const separateRoom = await f.peer(id(6), room(2), credential);
   assert.deepEqual((await separateRoom.next("welcome")).peers, []);
-  assert.equal(f.rooms.get(room(1))!.size, 2);
+  assert.equal(f.rooms.get(room(1))!.size, 3);
 });
 test("wrong origins, malformed joins and signals are rejected", async () => {
   const f = await fixture();

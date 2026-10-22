@@ -11,10 +11,12 @@ carry this hostname. Saved projects and legacy invitations containing the former
 built-in relay IP migrate to this domain; custom relay addresses remain intact.
 The network worker resolves it through DNS before the existing UDP handshake.
 
-The transport still supports two people. There is one music sender and one
-listener, plus two independent browser media transports. Audio codecs, packet
-formats, encryption, congestion priorities and jitter-buffer behavior are
-unchanged by the interface update.
+Rooms support up to eight people: one music sender and up to seven listeners.
+Each listener has an independent authenticated P2P path, with targeted relay as
+fallback. Browser voice and screen form independent WebRTC links for every pair.
+Audio payload formats and encryption stay compatible; targeted relay adds a
+routing envelope which the server strips before delivery. Congestion priorities
+and receiver jitter-buffer behavior remain independent of room membership.
 
 ## Native controls
 
@@ -91,8 +93,8 @@ replaces that participant's old browser transport and stops its capture, instead
 of consuming a second person's slot. Each transport still gets a fresh public
 signaling ID and encryption sequence, so the partner can accept its new messages
 without weakening replay checks. The replaced tab does not auto-reconnect. Native
-presence does not occupy a browser signaling slot, and two distinct people can
-each use music, voice and screen in the same room. A third person is still rejected.
+presence does not occupy a browser signaling slot, and up to eight distinct people can
+each use music, voice and screen in the same room. A ninth person is rejected.
 The versioned chat handshake asks older pages to reload before reserving a slot;
 old per-page sessions therefore cannot keep blocking the partner after deployment.
 

@@ -196,7 +196,7 @@ void ShareStreamEditor::timerCallback(){
     for(auto* button:{&createSaved,&saveSaved})button->setEnabled(signedIn && !directory.busy);
     for(auto* button:{&renameSaved,&inviteSaved})button->setEnabled(owner && !directory.busy);
     accountList.setEnabled(!directory.busy);roomList.setEnabled(signedIn && !directory.busy);accountLogin.setEnabled(!directory.busy);accountLogout.setEnabled(signedIn && !directory.busy);
-    directoryStatus.setText(directory.busy?"Updating rooms...":directory.error.isNotEmpty()?directory.error:directory.notice.isNotEmpty()?directory.notice:signedIn?"Saved rooms stay available after everyone leaves. Two people can connect at a time.":"Sign in to keep rooms and invite users. Guest invitations still work.",juce::dontSendNotification);
+    directoryStatus.setText(directory.busy?"Updating rooms...":directory.error.isNotEmpty()?directory.error:directory.notice.isNotEmpty()?directory.notice:signedIn?"Saved rooms stay available after everyone leaves. Up to eight people can connect.":"Sign in to keep rooms and invite users. Guest invitations still work.",juce::dontSendNotification);
 
     const auto u=updater->state();update.setButtonText(u.available?"Update available":"Updates");update.setTooltip(u.text);update.setEnabled(!u.busy);
     if(u.ready && updater->launch(processor.standalone())){
@@ -217,16 +217,16 @@ void ShareStreamEditor::timerCallback(){
     else if(lastStats.waitingForAudio)message="Waiting for DAW audio - enable playback or monitoring.";
     else if(!lastStats.relay && !lastStats.direct)message="Connecting...";
     else if(!lastStats.peer)message="Session open / waiting for your partner";
-    else message=processor.configuration().role==sharestream::Role::send?"Connected / sending music":"Connected / listening to music";
+    else message=processor.configuration().role==sharestream::Role::send?"Connected / sending to "+juce::String(lastStats.peers)+(lastStats.peers==1?" listener":" listeners"):"Connected / listening to music";
     status.setText(message,juce::dontSendNotification);status.setColour(juce::Label::textColourId,!lastStats.error.empty()?juce::Colour(0xffffb19a):muted);
     const auto rtt=lastStats.direct?lastStats.directRttMs:lastStats.rttMs;
-    stats.setText((lastStats.direct?"Peer RTT ":"Relay RTT ")+(rtt>0?juce::String(rtt,1)+" ms":"-")+"   Buffer "+juce::String(lastStats.jitterMs,0)+" ms   Packets "+juce::String(lastStats.packets)+"   Lost "+juce::String(lastStats.lost)+"   Dropouts "+juce::String(lastStats.underruns),juce::dontSendNotification);
+    stats.setText((lastStats.direct?"Peer RTT ":"Relay RTT ")+(rtt>0?juce::String(rtt,1)+" ms":"-")+"   Buffer "+juce::String(lastStats.jitterMs,0)+" ms   P2P "+juce::String(lastStats.directPeers)+" / Relay "+juce::String(std::max(0,lastStats.peers-lastStats.directPeers))+"   Packets "+juce::String(lastStats.packets)+"   Lost "+juce::String(lastStats.lost)+"   Dropouts "+juce::String(lastStats.underruns),juce::dontSendNotification);
     if(noticeTicks>0){--noticeTicks;hint.setText(notice,juce::dontSendNotification);}else hint.setText("Only changes what you hear. L/R show local output in dBFS.",juce::dontSendNotification);
     theme.peaks=processor.monitorPeaks();
     const auto max=std::max(theme.peaks[0],theme.peaks[1]);peak.setText(max>0?"Peak "+juce::String(juce::Decibels::gainToDecibels(max,-100.0f),1)+" dBFS":"Peak -inf dBFS",juce::dontSendNotification);
     gain.setText(monitor.getValue()<=-60?"Mute":juce::String(monitor.getValue(),1)+" dB",juce::dontSendNotification);
     auto roster=processor.participants();auto next=roster.participants;const auto id=processor.participantId();
-    if(std::none_of(next.begin(),next.end(),[&](const auto& p){return p.id==id;}))next.insert(next.begin(),{id,"You",running?(lastStats.peer?(processor.configuration().role==sharestream::Role::send?"sending":"listening"):"connecting"):"",false,false,false});
+    if(std::none_of(next.begin(),next.end(),[&](const auto& p){return p.id==id;}))next.insert(next.begin(),{id,directory.user["name"].toString().isNotEmpty()?directory.user["name"].toString():juce::String("You"),running?(lastStats.peer?(processor.configuration().role==sharestream::Role::send?"sending":"listening"):"connecting"):"",false,false,false});
     // Older servers have no identity bridge. Report the real music peer without
     // claiming it belongs to any unlinked browser participant.
     if(!roster.available && lastStats.peer)next.push_back({{},"Music partner",processor.configuration().role==sharestream::Role::send?"listening":"sending",false,false,false});

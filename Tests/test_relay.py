@@ -23,13 +23,13 @@ class RelayTests(unittest.TestCase):
         self.server.transport = Transport()
         self.room = b"r"*16
 
-    def wire(self, kind, role=1, peer=b"a"*16, room=None, body=bytes(16)):
-        return relay.HEADER.pack(b"SST1", kind, role, 0, room or self.room, peer, 1)+body
+    def wire(self, kind, role=1, peer=b"a"*16, room=None, body=bytes(16), sequence=1):
+        return relay.HEADER.pack(b"SST1", kind, role, 0, room or self.room, peer, sequence)+body
 
-    def join(self, address, role=1, peer=b"a"*16, room=None):
+    def join(self, address, role=1, peer=b"a"*16, room=None, group=False):
         self.server.datagram_received(self.wire(relay.HELLO, role, peer, room), address)
         cookie = self.server.transport.sent[-1][0][48:]
-        self.server.datagram_received(self.wire(relay.JOIN, role, peer, room, cookie), address)
+        self.server.datagram_received(self.wire(relay.JOIN, role, peer, room, cookie, sequence=relay.GROUP_VERSION if group else 1), address)
         return next(data for data, _ in reversed(self.server.transport.sent)
                     if relay.HEADER.unpack_from(data)[1] == relay.READY)
 
@@ -126,6 +126,33 @@ class RelayTests(unittest.TestCase):
             self.assertEqual(len(data), 80)
             self.assertIn(address, (a, b))
             self.assertEqual(data[54:70], b"b"*16 if address == a else b"a"*16)
+
+    def test_group_fanout_is_bounded_and_targeted_relay_does_not_reach_direct_listeners(self):
+        sender=("127.0.0.1",10001)
+        self.assertEqual(self.join(sender,group=True)[48],0)
+        listeners=[]
+        for i in range(7):
+            address=("127.0.0.1",10002+i);identity=bytes([i+1])*16
+            self.assertEqual(self.join(address,2,identity,group=True)[48],0)
+            listeners.append((address,identity))
+        self.assertEqual(self.join(("127.0.0.1",10009),2,b"z"*16,group=True)[48],3)
+        audio=self.wire(relay.AUDIO,body=bytes(relay.AUDIO_SIZE-48))
+        target,identity=listeners[2]
+        packet=self.wire(relay.FORWARD,body=identity+audio)
+        before=len(self.server.transport.sent)
+        self.server.datagram_received(packet,sender)
+        self.assertEqual(self.server.transport.sent[before:],[(audio,target)])
+        before=len(self.server.transport.sent)
+        self.server.datagram_received(packet,listeners[0][0])
+        self.server.datagram_received(self.wire(relay.FORWARD,body=b"?"*16+audio),sender)
+        bad=self.wire(relay.AUDIO,peer=b"?"*16,body=bytes(relay.AUDIO_SIZE-48))
+        self.server.datagram_received(self.wire(relay.FORWARD,body=identity+bad),sender)
+        self.assertEqual(len(self.server.transport.sent),before)
+
+    def test_legacy_sender_requires_update_before_accepting_more_than_one_listener(self):
+        self.join(("127.0.0.1",1))
+        self.assertEqual(self.join(("127.0.0.1",2),2,b"b"*16)[48],0)
+        self.assertEqual(self.join(("127.0.0.1",3),2,b"c"*16,group=True)[48],4)
 
 
 if __name__ == "__main__":

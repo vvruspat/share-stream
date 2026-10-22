@@ -14,7 +14,7 @@ import {
   TooltipProvider,
   type SelectOption,
 } from "./components/ui/index.js";
-import { ScreenStage, VoicePlayer } from "./components/Media.js";
+import { ScreenStage, RoomVoices } from "./components/Media.js";
 import { useCall } from "./call/useCall.js";
 import { useParticipants } from "./call/useParticipants.js";
 import { loadDisplayName, saveDisplayName } from "./call/profile.js";
@@ -56,8 +56,10 @@ function Session({
   name?: string;
   roomName?: string;
 }) {
-  const { call, state, remote, voiceStream, screenStream, localScreen, error, run } =
-    useCall(token);
+  const { call, state, remotes, localScreen, error, run } = useCall(token);
+  const [watching, setWatching] = useState("");
+  const screens = remotes.filter((p) => p.screen && p.media.screen);
+  const viewed = screens.find((p) => p.id === watching) || screens[0];
   const [joining, setJoining] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [input, setInput] = useState("");
@@ -190,10 +192,19 @@ function Session({
             Choose a saved room above, or open an invitation from your Share Stream plugin.
           </div>
         )}
+        {screens.length > 1 && (
+          <Select
+            id="screen-select"
+            label="View screen"
+            value={viewed?.id || ""}
+            options={screens.map((p, i) => ({ value: p.id, label: `Screen ${i + 1}` }))}
+            onValueChange={setWatching}
+          />
+        )}
         <ScreenStage
-          stream={screenStream}
+          stream={viewed?.screen || null}
           local={localScreen}
-          sharing={!!remote.screen}
+          sharing={!!viewed}
           error={
             error ||
             (!supported
@@ -339,7 +350,7 @@ function Session({
             {roster.participants.map((p) => {
               const self = p.id === roster.id;
               const mic = self ? state.mic : p.mic;
-              const speaking = mic && (self ? state.speaking : state.remoteSpeaking || p.speaking);
+              const speaking = mic && (self ? state.speaking : p.speaking);
               return (
                 <li key={p.id} className="participant" data-participant-id={p.id}>
                   <span className="avatar" aria-hidden="true">
@@ -373,8 +384,8 @@ function Session({
             })}
           </ul>
         </Disclosure>
-        <VoicePlayer
-          stream={voiceStream}
+        <RoomVoices
+          peers={remotes}
           gainDb={volumeDb}
           output={output}
           onPeaks={setVoicePeaks}

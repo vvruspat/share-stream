@@ -158,8 +158,8 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
           <div>
             <h2>Your rooms</h2>
             <p className="small">
-              Rooms stay here when everyone leaves. Music, voice and screen support two people at a
-              time.
+              Rooms stay here when everyone leaves. Music, voice and screen support up to eight
+              people at a time.
             </p>
           </div>
           {!!saved.accounts.length && (

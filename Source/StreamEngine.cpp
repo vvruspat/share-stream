@@ -24,6 +24,7 @@ struct StreamEngine::Session {
     std::atomic<bool> stop {false}, relay {false}, partner {false};
     std::atomic<bool> direct {false};
     std::atomic<double> directRtt {0};
+    std::atomic<int> peers {0}, directPeers {0};
     std::atomic<double> jitterMs {0};
     std::atomic<double> rtt {0}, lastRelay {0};
     std::atomic<uint64_t> packets {0}, lost {0}, underruns {0}, overruns {0}, rejected {0};
@@ -90,6 +91,7 @@ Statistics StreamEngine::statistics() const {
     Statistics out;
     if (auto* s = active.load()) {
         out.running=true; out.relay=s->relay.load(); out.peer=s->partner.load(); out.rttMs=s->rtt.load();
+        out.peers=s->peers.load();out.directPeers=s->directPeers.load();
         out.direct=s->direct.load();out.directRttMs=s->directRtt.load();
         out.jitterMs=s->jitterMs.load();
         out.packets=s->packets.load(); out.lost=s->lost.load(); out.underruns=s->underruns.load(); out.overruns=s->overruns.load(); out.rejected=s->rejected.load();
@@ -193,11 +195,13 @@ void StreamEngine::run(Session* s) {
     juce::WindowedSincInterpolator sendL,sendR;
     const double ratio=s->rate/48000.0;
     uint64_t sendSequence=0,expected=0,highestReceived=0;
-    double lastHello=-10000,lastPing=-10000,playAt=0,lastAudio=0,lastDirectProbe=-10000,lastDirectReply=-10000;
-    double lastCapabilitiesSent=-10000,lastCapabilitiesReceived=-10000;
-    uint64_t capabilitiesSequence=0,lastCapabilitiesSequence=0;
-    Id capabilitiesPeer {};uint8_t partnerQualities=1;
-    sockaddr_in peerAddress {};Id peerHint {};bool haveEndpoint=false;
+    double lastHello=-10000,lastPing=-10000,playAt=0,lastAudio=0,lastDirectProbe=-10000;
+    double lastCapabilitiesSent=-10000;
+    uint64_t capabilitiesSequence=0;
+    struct Path { sockaddr_in address {};double endpointAt=0,directAt=-10000,capsAt=-10000;uint64_t capsSequence=0;uint8_t qualities=1; };
+    std::map<Id,Path> paths;
+    bool targetedRelay=false;
+    int peerCount=0;
     const auto sameAddress=[](const sockaddr_in& a,const sockaddr_in& b){return a.sin_addr.s_addr==b.sin_addr.s_addr && a.sin_port==b.sin_port;};
     bool playing=false,haveStream=false;
     double adaptiveJitter=s->config.jitterMs,averageAhead=adaptiveJitter/2.5;
@@ -212,14 +216,22 @@ void StreamEngine::run(Session* s) {
         if(now-lastHello>=1000) { sendControl(Kind::hello); lastHello=now; }
         if(s->relay.load() && now-lastPing>=500) { sendControl(Kind::ping,static_cast<uint64_t>(now*1000)); lastPing=now; }
         if(now-s->lastRelay.load()>3000) { s->relay.store(false); if(!s->direct.load())s->partner.store(false); }
-        s->direct.store(s->config.preferDirect && haveEndpoint && now-lastDirectReply<1500);
-        if(s->relay.load() && s->partner.load() && haveEndpoint && now-lastCapabilitiesSent>=500) {
+        for(auto i=paths.begin();i!=paths.end();) {
+            if(now-i->second.endpointAt>2500 && now-i->second.directAt>1500)i=paths.erase(i);else ++i;
+        }
+        int directCount=0;
+        for(const auto& [id,path]:paths)if(s->config.preferDirect && now-path.directAt<1500)++directCount;
+        s->peers.store(peerCount);s->directPeers.store(directCount);
+        s->direct.store(peerCount>0 && directCount==peerCount);
+        if(directCount>0)s->partner.store(true);
+        if(s->relay.load() && s->partner.load() && !paths.empty() && now-lastCapabilitiesSent>=500) {
             const auto caps=encryptCapabilities({Kind::capabilities,s->config.role,s->room.id,s->peer,++capabilitiesSequence},s->room.key);
             net::send(fd,caps.data(),caps.size(),relayAddress);lastCapabilitiesSent=now;
         }
-        if(s->config.preferDirect && haveEndpoint && now-lastDirectProbe>=250) {
+        if(s->config.preferDirect && !paths.empty() && now-lastDirectProbe>=250) {
             auto probe=encryptProbe({Kind::directPing,s->config.role,s->room.id,s->peer,static_cast<uint64_t>(now*1000)},s->room.key);
-            net::send(fd,probe.data(),probe.size(),peerAddress);lastDirectProbe=now;
+            for(const auto& [id,path]:paths)net::send(fd,probe.data(),probe.size(),path.address);
+            lastDirectProbe=now;
         }
         net::wait(fd);
         // Bounded drain prevents a busy socket from starving audio transmission.
@@ -237,39 +249,44 @@ void StreamEngine::run(Session* s) {
                 sockaddr_in endpoint {};endpoint.sin_family=AF_INET;
                 std::memcpy(&endpoint.sin_addr.s_addr,wire.data()+48,4);std::memcpy(&endpoint.sin_port,wire.data()+52,2);
                 if(endpoint.sin_port && endpoint.sin_addr.s_addr && candidate!=s->peer) {
-                    if(!haveEndpoint || peerHint!=candidate || !sameAddress(endpoint,peerAddress))lastDirectReply=-10000;
-                    peerAddress=endpoint;peerHint=candidate;haveEndpoint=true;
+                    if(!paths.contains(candidate) && paths.size()>=static_cast<size_t>(maxParticipants-1)) {
+                        const auto oldest=std::min_element(paths.begin(),paths.end(),[](const auto& a,const auto& b){return a.second.endpointAt<b.second.endpointAt;});
+                        paths.erase(oldest);
+                    }
+                    auto& path=paths[candidate];if(!sameAddress(endpoint,path.address))path.directAt=-10000;
+                    path.address=endpoint;path.endpointAt=milliseconds();
                 }
                 continue;
             }
-            if((h->kind==Kind::directPing || h->kind==Kind::directPong) && s->config.preferDirect && haveEndpoint && h->peer==peerHint && h->role!=s->config.role) {
+            if((h->kind==Kind::directPing || h->kind==Kind::directPong) && s->config.preferDirect && paths.contains(h->peer) && h->role!=s->config.role) {
                 if(!authenticateProbe(wire.data(),static_cast<size_t>(n),s->room.key))continue;
                 if(h->kind==Kind::directPing) {
                     auto response=encryptProbe({Kind::directPong,s->config.role,s->room.id,s->peer,h->sequence},s->room.key);
                     net::send(fd,response.data(),response.size(),source);
                 } else {
                     const double rtt=milliseconds()-h->sequence/1000.0;
-                    if(rtt>=0 && rtt<1500) {lastDirectReply=milliseconds();peerAddress=source;s->directRtt.store(rtt);s->partner.store(true);}
+                    if(rtt>=0 && rtt<1500) {paths[h->peer].directAt=milliseconds();paths[h->peer].address=source;s->directRtt.store(rtt);s->partner.store(true);}
                 }
                 continue;
             }
             if(h->kind!=Kind::audio && h->kind!=Kind::encodedAudio && !fromRelay)continue;
-            if(h->kind==Kind::capabilities && fromRelay && haveEndpoint && h->peer==peerHint && h->role!=s->config.role) {
+            if(h->kind==Kind::capabilities && fromRelay && paths.contains(h->peer) && h->role!=s->config.role) {
                 const auto formats=decryptCapabilities(wire.data(),static_cast<size_t>(n),s->room.key);
-                if(formats && (capabilitiesPeer!=h->peer || h->sequence>lastCapabilitiesSequence)) {
-                    partnerQualities=*formats;capabilitiesPeer=h->peer;lastCapabilitiesSequence=h->sequence;lastCapabilitiesReceived=milliseconds();
+                if(formats && h->sequence>paths[h->peer].capsSequence) {
+                    auto& path=paths[h->peer];path.qualities=*formats;path.capsSequence=h->sequence;path.capsAt=milliseconds();
                 }
                 continue;
             }
             if(h->kind==Kind::cookie && own && n==controlBytes) {
-                wire[4]=static_cast<uint8_t>(Kind::join); net::send(fd,wire.data(),controlBytes,relayAddress);
+                writeHeader(wire.data(),{Kind::join,s->config.role,s->room.id,s->peer,groupVersion}); net::send(fd,wire.data(),controlBytes,relayAddress);
             } else if(h->kind==Kind::ready && own && n==controlBytes) {
                 if(wire[48]==2) { setError("Role already in use. Your partner must select the opposite role."); s->relay.store(false); }
+                else if(wire[48]==4) {setError("Update the music sender to use a group room.");s->relay.store(false);}
                 else if(wire[48]==3) { setError("Server capacity reached. Try again shortly."); s->relay.store(false); }
-                else { s->relay.store(true); s->lastRelay.store(milliseconds()); s->partner.store(wire[49]>0); setError(""); }
+                else { s->relay.store(true); s->lastRelay.store(milliseconds()); peerCount=wire[49];targetedRelay=wire[50]==1;s->partner.store(peerCount>0); setError(""); }
             } else if(h->kind==Kind::pong && own && n==controlBytes) {
                 s->rtt.store(std::max(0.0,milliseconds()-h->sequence/1000.0)); s->lastRelay.store(milliseconds());
-                s->partner.store(wire[49]>0);
+                peerCount=wire[49];targetedRelay=wire[50]==1;s->partner.store(peerCount>0);
             } else if((h->kind==Kind::audio || h->kind==Kind::encodedAudio) && s->config.role==Role::receive && h->peer!=s->peer) {
                 AudioPacket decoded {};std::optional<EncodedFrame> encoded;
                 if(h->kind==Kind::encodedAudio) {
@@ -306,10 +323,10 @@ void StreamEngine::run(Session* s) {
                 s->packets.fetch_add(1);
             }
         }
-        if(s->config.role==Role::send && (s->relay.load() || s->direct.load())) {
+        if(s->config.role==Role::send && (s->relay.load() || directCount>0)) {
             const auto requested=s->requestedQuality.load();
-            const bool negotiated=s->partner.load() && haveEndpoint && capabilitiesPeer==peerHint && now-lastCapabilitiesReceived<2000
-                && (partnerQualities&(1u<<static_cast<int>(requested)));
+            const bool negotiated=s->partner.load() && peerCount>0 && paths.size()==static_cast<size_t>(peerCount)
+                && std::all_of(paths.begin(),paths.end(),[&](const auto& item){return now-item.second.capsAt<2000 && (item.second.qualities&(1u<<static_cast<int>(requested)));});
             const auto quality=negotiated?requested:AudioQuality::float32;
             s->qualityNegotiated.store(negotiated);s->activeQuality.store(quality);
             const int inputCount=static_cast<int>(std::ceil(packetFrames*ratio))+2;
@@ -332,15 +349,24 @@ void StreamEngine::run(Session* s) {
                 AudioPacket packet;
                 for(int i=0;i<packetFrames;++i) packet[i]={outL[i],outR[i]};
                 const auto frame=s->codec.encode(quality,packet);
-                const auto& destination=s->direct.load() ? peerAddress : relayAddress;
+                std::vector<uint8_t> wire;
                 if(quality==AudioQuality::float32) {
-                    const auto wire=encrypt({Kind::audio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,packet);
-                    if(net::send(fd,wire.data(),wire.size(),destination)==static_cast<int>(wire.size()))s->packets.fetch_add(1);
-                } else {
-                    const auto wire=encryptFrame({Kind::encodedAudio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,frame);
-                    if(wire.empty()) {s->rejected.fetch_add(1);continue;}
-                    if(net::send(fd,wire.data(),wire.size(),destination)==static_cast<int>(wire.size()))s->packets.fetch_add(1);
+                    const auto packetWire=encrypt({Kind::audio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,packet);
+                    wire.assign(packetWire.begin(),packetWire.end());
+                } else wire=encryptFrame({Kind::encodedAudio,Role::send,s->room.id,s->peer,sendSequence++},s->room.key,frame);
+                if(wire.empty()){s->rejected.fetch_add(1);continue;}
+                bool relayNeeded=paths.size()<static_cast<size_t>(peerCount);
+                for(const auto& [id,path]:paths) {
+                    if(s->config.preferDirect && now-path.directAt<1500)net::send(fd,wire.data(),wire.size(),path.address);
+                    else if(targetedRelay) {
+                        std::vector<uint8_t> forwarded(64+wire.size());
+                        writeHeader(forwarded.data(),{Kind::forward,Role::send,s->room.id,s->peer,0});
+                        std::copy(id.begin(),id.end(),forwarded.begin()+48);std::copy(wire.begin(),wire.end(),forwarded.begin()+64);
+                        net::send(fd,forwarded.data(),forwarded.size(),relayAddress);
+                    } else relayNeeded=true;
                 }
+                if(relayNeeded || paths.empty())net::send(fd,wire.data(),wire.size(),relayAddress);
+                s->packets.fetch_add(1);
             }
         }
         if(s->config.role==Role::receive && playing) {

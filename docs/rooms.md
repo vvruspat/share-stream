@@ -25,11 +25,22 @@ media, without removing the room or membership. Restoring a project/account or
 reloading the page never starts music or capture. Switching accounts disconnects
 the active native stream or browser call; browser captures are stopped.
 
-Up to 64 accounts can save a room and each account can save 100 rooms. Media is
-still limited to two simultaneous participants: one native sender and one native
-listener, plus their browser voice and screen. Saved offline members do not
-reserve media slots. There is no room deletion, member removal, invitation
-revocation or password recovery UI in this version.
+Up to 64 accounts can save a room and each account can save 100 rooms. Media
+supports eight simultaneous participants: one native sender and up to seven
+native listeners, plus their browser voice and screen. Saved offline members do not
+reserve media slots. Native music has an independent authenticated P2P path per
+listener. Only listeners without a working direct path receive targeted relay
+packets; a forced-relay listener does not move the other listeners onto the
+server. The sender chooses a codec supported by every active listener and falls
+back to Float32 while capabilities are unknown. Browser voice and screen use a
+full WebRTC mesh with separate voice/screen connections per pair and TURN fallback.
+Every participant can speak and share a screen; when several screens are shared,
+viewers can select which screen to watch. Upload bandwidth and browser CPU use
+grow with the number of participants; eight is the application limit, not a
+performance guarantee for every device or connection. Group native streaming
+requires the updated relay and sender. Legacy senders/relays retain pair behavior.
+There is no room deletion, member removal, invitation revocation or password
+recovery UI in this version.
 
 ## Storage and privacy
 
@@ -92,3 +103,11 @@ It starts an isolated real server, uses temporary accounts/settings, exercises
 native HTTP login/create/rename/invite/switch/restore/logout, then verifies the
 invited room through the browser API. It uses no production credentials or media
 devices and removes its account storage afterwards.
+
+The native `group_transport` fixture runs all three codecs with seven actual
+listeners, four direct and three forced through targeted relay. It checks stereo
+audio, late entry, departure/rejoin and the final set of relay recipients. Browser
+group tests use four isolated contexts, simultaneous voice and two shared screens,
+late entry, departure/rejoin and capture cleanup; server admission tests check the
+eight-person limit. These are synthetic local-network checks, not a measurement
+of internet NAT success, physical audio latency or eight-browser performance.

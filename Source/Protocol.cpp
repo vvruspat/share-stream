@@ -68,7 +68,7 @@ void writeHeader(uint8_t* out, const Header& h) {
     for (int i = 0; i < 8; ++i) out[40+i] = static_cast<uint8_t>(h.sequence >> (56-8*i));
 }
 std::optional<Header> readHeader(const uint8_t* data, size_t size) {
-    if (size < headerBytes || std::memcmp(data, "SST1", 4) || data[6] || data[7] || data[4] < 1 || data[4] > 13 || data[5] < 1 || data[5] > 2) return {};
+    if (size < headerBytes || std::memcmp(data, "SST1", 4) || data[6] || data[7] || data[4] < 1 || data[4] > 14 || data[5] < 1 || data[5] > 2) return {};
     Header h {static_cast<Kind>(data[4]), static_cast<Role>(data[5]), {}, {}, 0};
     std::copy_n(data+8, 16, h.room.begin()); std::copy_n(data+24, 16, h.peer.begin());
     for (int i = 0; i < 8; ++i) h.sequence = (h.sequence << 8) | data[40+i];

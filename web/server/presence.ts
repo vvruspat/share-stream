@@ -1,3 +1,4 @@
+import { MAX_PARTICIPANTS } from "../shared/protocol.js";
 import { createHash } from "node:crypto";
 import type { Participant, PresenceUpdate } from "../shared/presence.js";
 
@@ -53,7 +54,8 @@ export class PresenceRegistry {
     const id = participantId(m.token);
     let entry = entries.get(id);
     if (!entry && m.connected) {
-      if (entries.size >= 2) throw new Error("This session supports two participants");
+      if (entries.size >= MAX_PARTICIPANTS)
+        throw new Error("This room supports eight participants");
       entry = {
         id,
         name: `Participant ${id.slice(0, 4)}`,
@@ -75,13 +77,13 @@ export class PresenceRegistry {
         entry.browser = m.connected;
         entry.mic = m.connected && !!m.mic;
         entry.speaking = entry.mic && !!m.speaking;
-        if (m.name !== undefined) {
-          const clean = Array.from(m.name)
-            .filter((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127)
-            .join("")
-            .trim();
-          entry.name = clean || `Participant ${id.slice(0, 4)}`;
-        }
+      }
+      if (m.name !== undefined) {
+        const clean = Array.from(m.name)
+          .filter((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127)
+          .join("")
+          .trim();
+        entry.name = clean || `Participant ${id.slice(0, 4)}`;
       }
       if (!entry.music && !entry.browser) entries.delete(id);
     }
