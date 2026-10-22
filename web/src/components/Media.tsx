@@ -1,10 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowsPointingInIcon,
-  ArrowsPointingOutIcon,
-  ComputerDesktopIcon,
-  PlayIcon,
-} from "@heroicons/react/24/outline";
+import { ArrowsPointingInIcon, ArrowsPointingOutIcon, PlayIcon } from "@heroicons/react/24/outline";
 import { Button, Tooltip, TooltipContainer } from "./ui/index.js";
 import { VoicePlayback } from "../audio/VoicePlayback.js";
 import type { StereoPeaks } from "../audio/monitor.js";
@@ -239,6 +234,8 @@ export function ScreenStage({
   error,
   onError,
   children,
+  placeholder,
+  afterControls,
 }: {
   stream: MediaStream | null;
   local: MediaStream | null;
@@ -246,6 +243,8 @@ export function ScreenStage({
   error: string;
   onError: (error: unknown) => void;
   children: React.ReactNode;
+  placeholder: React.ReactNode;
+  afterControls?: React.ReactNode;
 }) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [full, setFull] = useState(false);
@@ -280,29 +279,26 @@ export function ScreenStage({
             label="Partner’s shared screen"
           />
           <div id="placeholder" className="placeholder" hidden={(!!stream && sharing) || !!local}>
-            <div className="screen-symbol">
-              <ComputerDesktopIcon />
-            </div>
-            <h2>A little closer to the mix.</h2>
-            <p>A participant’s shared screen will appear here.</p>
+            {placeholder}
           </div>
           <Video id="local-screen" stream={local} label="Your screen preview" />
-          <div className="stream-toolbar" role="toolbar" aria-label="Call controls">
-            {children}
-            <span className="toolbar-divider" />
-            <Tooltip content={full ? "Exit full screen" : "Enter full screen"}>
-              <Button
-                id="fullscreen"
-                variant="ghost"
-                className="icon-button"
-                aria-label={full ? "Exit full screen" : "Enter full screen"}
-                aria-pressed={full}
-                onClick={() => void fullscreen()}
-              >
-                {full ? <ArrowsPointingInIcon /> : <ArrowsPointingOutIcon />}
-              </Button>
-            </Tooltip>
-          </div>
+        </div>
+        <div className="stream-toolbar" role="toolbar" aria-label="Call controls">
+          {children}
+          <span className="toolbar-divider" />
+          <Tooltip content={full ? "Exit full screen" : "Enter full screen"}>
+            <Button
+              id="fullscreen"
+              variant="ghost"
+              className="icon-button"
+              aria-label={full ? "Exit full screen" : "Enter full screen"}
+              aria-pressed={full}
+              onClick={() => void fullscreen()}
+            >
+              {full ? <ArrowsPointingInIcon /> : <ArrowsPointingOutIcon />}
+            </Button>
+          </Tooltip>
+          <div className="toolbar-end">{afterControls}</div>
         </div>
       </TooltipContainer.Provider>
     </section>

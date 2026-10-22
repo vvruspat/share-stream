@@ -48,10 +48,15 @@ with a separate server key. See [storage, privacy and deployment](../docs/rooms.
 
 ## Media invariants
 
-Native and browser clients use the same 32-character room secret. `Copy invite`
+Native and browser clients use the same 32-character room secret. Copying an invitation
 produces an HTTPS link with room and optional native relay metadata in the fragment.
-The native `Voice & screen` button also adds one-time `join=1` intent; the page joins
-signaling automatically and removes that flag from history. A plain page/room URL
+For signed-in native accounts, `Voice & screen` opens `/connect#handoff=...` with
+a one-use 60-second ticket. The browser removes it immediately, confirms the
+account when necessary, then joins the selected room with capture off. Browser
+accounts use an HttpOnly cookie with server-side grants and per-tab selection;
+account bearer tokens are not stored in JavaScript-accessible storage. Native
+guest links retain the one-time `join=1` intent; the page joins signaling and
+removes that flag from history. A plain page/room URL
 still needs Join. Neither path opens capture. Both invitation parsers share fixture
 coverage in `Tests/Invitations.json`; legacy native links and raw tokens remain valid.
 

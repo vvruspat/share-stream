@@ -2,11 +2,18 @@ import {
   createContext,
   useContext,
   useState,
+  useId,
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
-import { Collapsible, Select as RadixSelect, Tooltip as RadixTooltip } from "radix-ui";
-import { CheckIcon, ChevronDownIcon } from "@heroicons/react/20/solid";
+import {
+  Collapsible,
+  Dialog,
+  DropdownMenu,
+  Select as RadixSelect,
+  Tooltip as RadixTooltip,
+} from "radix-ui";
+import { CheckIcon, ChevronDownIcon, XMarkIcon } from "@heroicons/react/20/solid";
 
 export function Button({
   variant = "secondary",
@@ -48,6 +55,7 @@ export function Select({
   disabled?: boolean;
   describedBy?: string;
 }) {
+  const container = useContext(TooltipContainer);
   return (
     <div className="field">
       <label htmlFor={id}>{label}</label>
@@ -62,7 +70,7 @@ export function Select({
             <ChevronDownIcon />
           </RadixSelect.Icon>
         </RadixSelect.Trigger>
-        <RadixSelect.Portal>
+        <RadixSelect.Portal container={container}>
           <RadixSelect.Content
             className="select-content"
             position="popper"
@@ -129,5 +137,88 @@ export function Disclosure({
         {children}
       </Collapsible.Content>
     </Collapsible.Root>
+  );
+}
+
+export function Modal({
+  title,
+  description,
+  open,
+  onOpenChange,
+  children,
+}: {
+  title: string;
+  description?: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const descriptionId = useId();
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content
+          className="dialog-content"
+          aria-describedby={description ? descriptionId : undefined}
+        >
+          <div className="dialog-header">
+            <Dialog.Title>{title}</Dialog.Title>
+            <Dialog.Close asChild>
+              <Button variant="ghost" className="icon-button" aria-label="Close">
+                <XMarkIcon />
+              </Button>
+            </Dialog.Close>
+          </div>
+          {description && (
+            <Dialog.Description id={descriptionId} className="small">
+              {description}
+            </Dialog.Description>
+          )}
+          {children}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+export function Menu({
+  trigger,
+  children,
+  label,
+}: {
+  trigger: ReactNode;
+  children: ReactNode;
+  label: string;
+}) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>{trigger}</DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          className="menu-content"
+          aria-label={label}
+          sideOffset={7}
+          collisionPadding={12}
+        >
+          {children}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+}
+export function MenuItem({
+  children,
+  onSelect,
+  disabled,
+}: {
+  children: ReactNode;
+  onSelect: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <DropdownMenu.Item className="menu-item" onSelect={onSelect} disabled={disabled}>
+      {children}
+    </DropdownMenu.Item>
   );
 }

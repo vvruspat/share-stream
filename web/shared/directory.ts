@@ -17,3 +17,13 @@ export interface SavedRoom {
   participant: string;
   members: Account[];
 }
+export interface BrowserSession {
+  accounts: Account[];
+  csrf: string;
+}
+export interface BrowserHandoff {
+  handoffId: string;
+  user: Account;
+  room: Pick<SavedRoom, "id" | "name">;
+  confirmationRequired: boolean;
+}

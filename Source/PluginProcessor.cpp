@@ -87,8 +87,9 @@ void ShareStreamProcessor::processBlock(juce::AudioBuffer<float>& audio,juce::Mi
 sharestream::Connection ShareStreamProcessor::configuration() const { std::lock_guard lock(configMutex); return config; }
 void ShareStreamProcessor::setConfiguration(const sharestream::Connection& value) {
     auto normalized=value;normalized.host=sharestream::canonicalRelayHost(normalized.host);
-    bool reconnect=false;
-    { std::lock_guard lock(configMutex);reconnect=connectionRequested.load() && config.role!=value.role; }
+    bool reconnect=false, roomChanged=false;
+    { std::lock_guard lock(configMutex);reconnect=connectionRequested.load() && config.role!=value.role;roomChanged=config.code!=normalized.code || config.host!=normalized.host || config.port!=normalized.port; }
+    if(roomChanged)directory.cancelBrowserHandoff();
     if(reconnect)engine.disconnect();
     { std::lock_guard lock(configMutex);config=normalized;listen.store(config.role==sharestream::Role::receive); }
     if(reconnect)connectionRequested.store(engine.connect(normalized));
@@ -127,6 +128,14 @@ juce::URL ShareStreamProcessor::collaborationURL() {
     // The invitation is already encoded. Parsing it as a JUCE URL would escape
     // the entire fragment on launch, including the '=' and '&' separators.
     return juce::URL::createWithoutParsing(juce::String(invite)+"&participant="+participantToken());
+}
+
+juce::URL ShareStreamProcessor::browserHandoffURL() const {
+    const auto state=directory.state();
+    if(state.browserTicket.isEmpty() || state.browserCode!=juce::String(configuration().code)
+        || state.browserAccount!=state.user["id"].toString()
+        || juce::Time::getMillisecondCounterHiRes()>=state.browserExpiresAt)return {};
+    return juce::URL::createWithoutParsing("https://stream.whitesquirrel.digital/connect#handoff="+state.browserTicket);
 }
 juce::AudioProcessorEditor* ShareStreamProcessor::createEditor() { return new ShareStreamEditor(*this); }
 void ShareStreamProcessor::getStateInformation(juce::MemoryBlock& data) {

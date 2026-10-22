@@ -39,6 +39,7 @@ public:
     juce::String participantId() const;
     juce::String participantToken() const;
     juce::URL collaborationURL();
+    juce::URL browserHandoffURL() const;
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
     juce::AudioProcessorValueTreeState parameters;
     sharestream::RoomDirectory directory;

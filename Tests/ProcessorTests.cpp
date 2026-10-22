@@ -184,31 +184,34 @@ static void invitationActions(Relay& relay) {
     const auto previousClipboard=juce::SystemClipboard::getTextFromClipboard();
     struct RestoreClipboard {juce::String value;~RestoreClipboard(){juce::SystemClipboard::copyTextToClipboard(value);}} restore{previousClipboard};
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
-    auto click=[&](const juce::String& title) {
-        std::function<juce::TextButton*(juce::Component*)> find=[&](juce::Component* parent)->juce::TextButton* {
-            for(auto* child:parent->getChildren()){if(auto* button=dynamic_cast<juce::TextButton*>(child))if(button->getButtonText()==title)return button;if(auto* result=find(child))return result;}return nullptr;
-        };
-        if(auto* button=find(editor.get()))
-            if(button->getButtonText()==title) {check(button->isEnabled(),"live role/invite action remains enabled");button->onClick();return;}
-        check(false,"public editor button exists");
+    auto* native=dynamic_cast<ShareStreamEditor*>(editor.get());
+    check(native!=nullptr,"native room editor exists");
+    auto click=[&](const juce::String& id) {
+        auto* button=dynamic_cast<juce::TextButton*>(control(*editor,id));
+        check(button && button->isEnabled(),"public music action exists and is enabled");
+        button->onClick();
     };
-    click("Create session");
-    check(processor.statistics().running,"Create session opens the music session");
-    click("Copy invite");
-    check(processor.statistics().running,"Copy invite starts the current room without a second Connect click");
+    native->performRoomAction(ShareStreamEditor::RoomAction::copyInvite);
+    check(!processor.statistics().running,"sharing a room invitation never starts music");
     check(parseInvitation(juce::SystemClipboard::getTextFromClipboard().toStdString())->code==c.code,"copied invitation preserves the unified room token");
-    click("Listen");
-    check(processor.statistics().running && processor.configuration().role==Role::receive && processor.configuration().code==c.code,"live role change reconnects in the same room");
-    click("Send audio");
-    check(processor.statistics().running && processor.configuration().role==Role::send,"reverse role change does not require manual Disconnect/Connect");
+    click("music-connect");
+    check(processor.statistics().running,"the explicit music action starts sending");
+    check(!control(*editor,"listen-role")->isEnabled(),"a running sender cannot switch roles accidentally");
+    native->performRoomAction(ShareStreamEditor::RoomAction::copyInvite);
+    check(processor.statistics().running,"copying an invitation preserves an existing stream");
+    click("music-connect");click("listen-role");
+    check(!processor.statistics().running && processor.configuration().role==Role::receive && processor.configuration().code==c.code,"selecting Listen keeps the room and waits for explicit connection");
+    click("music-connect");
+    check(processor.statistics().running,"the explicit music action connects a listener");
     const auto secondRoom=newRoomCode();
     juce::SystemClipboard::copyTextToClipboard(invitationLink({secondRoom,RelayAddress{"127.0.0.1",relay.port}}));
-    click("Paste invite");
-    check(processor.statistics().running && processor.configuration().code==secondRoom,"Paste invite switches the room and connects in one action");
-    juce::SystemClipboard::copyTextToClipboard("invalid invite");click("Paste invite");
+    native->performRoomAction(ShareStreamEditor::RoomAction::pasteInvite);
+    check(!processor.statistics().running && processor.configuration().code==secondRoom,"importing a different room stops old music without starting new music");
+    click("music-connect");
+    juce::SystemClipboard::copyTextToClipboard("invalid invite");native->performRoomAction(ShareStreamEditor::RoomAction::pasteInvite);
     check(processor.statistics().running && processor.configuration().code==secondRoom,"invalid paste does not stop a live session");
     processor.stop();
-    std::cout<<"PASS: public Copy/Paste actions auto-connect, live roles preserve room, malformed invite leaves session intact\n";
+    std::cout<<"PASS: room sharing/import never starts music, explicit connection and role intent, malformed invite leaves session intact\n";
 }
 int main(int argc,char** argv) {
     try {
@@ -247,23 +250,36 @@ int main(int argc,char** argv) {
                 std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
                 auto image=editor->createComponentSnapshot(editor->getLocalBounds());
                 const auto target=juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_TEST_SNAPSHOT",{});
-                if(target.isNotEmpty()){juce::FileOutputStream output{juce::File(target)};check(juce::PNGImageFormat().writeImageToStream(image,output),"write directory preview");}
+                if(target.isNotEmpty()){juce::FileOutputStream output{juce::File(target)};check(output.openedOk(),"open directory preview");output.setPosition(0);output.truncate();check(juce::PNGImageFormat().writeImageToStream(image,output),"write directory preview");}
+                const auto handoffTarget=juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_TEST_HANDOFF",{});
+                if(handoffTarget.isNotEmpty()) {
+                    const auto sequence=processor.directory.state().browserSequence;
+                    check(processor.directory.requestBrowserHandoff(code,juce::String(config.host),config.port),"signed-in native client requests a browser handoff asynchronously");
+                    wait([&]{return processor.directory.state().browserSequence>sequence;});
+                    const auto url=processor.browserHandoffURL().toString(true);
+                    check(url.contains("/connect#handoff=") && !url.contains("participant=") && !url.contains("room="),"signed-in browser launch contains only a one-use handoff");
+                    const auto saved=processor.directory.state().rooms[0];
+                    const auto evidence=body({{"url",url},{"roomId",saved["id"]},{"username",juce::String(argv[2])},{"participant",processor.directory.participant(code)}});
+                    check(juce::File(handoffTarget).replaceWithText(juce::JSON::toString(evidence)),"write native-to-browser integration evidence");
+                    const juce::File ack(juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_TEST_HANDOFF_ACK",{}));
+                    wait([&]{return ack.existsAsFile();});
+                    auto other=config;other.code=newRoomCode();processor.setConfiguration(other);
+                    check(processor.browserHandoffURL().isEmpty(),"a handoff from another selected room cannot launch");
+                    processor.setConfiguration(config);
+                }
                 const juce::String unsaved=newRoomCode();
                 std::function<void(juce::Component*)> configure=[&](juce::Component* parent){
                     for(auto* child:parent->getChildren()){
                         if(auto* field=dynamic_cast<juce::TextEditor*>(child)){
                             if(field->getTitle()=="Relay server")field->setText("127.0.0.1");
                             if(field->getTitle()=="UDP port")field->setText("48190");
-                            if(field->getTitle()=="Private session code")field->setText(unsaved);
+                            if(field->getTitle()=="Private room code")field->setText(unsaved);
                         }
                         configure(child);
                     }
                 };
                 configure(editor.get());
-                std::function<juce::TextButton*(juce::Component*)> findConnect=[&](juce::Component* parent)->juce::TextButton* {
-                    for(auto* child:parent->getChildren()){if(auto* button=dynamic_cast<juce::TextButton*>(child))if(button->getButtonText()=="Connect to room")return button;if(auto* found=findConnect(child))return found;}return nullptr;
-                };
-                auto* connect=findConnect(editor.get());check(connect!=nullptr,"saved room exposes the public Connect action");connect->onClick();
+                auto* connect=dynamic_cast<juce::TextButton*>(control(*editor,"music-connect"));check(connect!=nullptr,"saved room exposes the explicit music action");connect->onClick();
                 wait([&]{return !processor.directory.state().busy && processor.directory.state().rooms.size()==2;});
                 check(processor.directory.participant(unsaved).isNotEmpty(),"native Create/Connect action saves a previously unknown room for the signed-in account");
                 processor.stop();
@@ -273,6 +289,7 @@ int main(int argc,char** argv) {
                 processor.directory.request("/api/accounts/logout");
                 wait([&]{return !processor.directory.state().busy && !processor.directory.state().user.isObject();});
                 check(processor.directory.state().accounts.size()==1,"sign out forgets just the selected account");
+                check(processor.browserHandoffURL().isEmpty(),"logging out prevents launching an old account handoff");
             }
             check(!juce::File(juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_ACCOUNT_FILE",{})).loadFileAsString().contains(password),"native settings never contain the password");
             std::cout<<"PASS: native login, room creation, rename, invitations, account switching, restore and logout\n";return 0;

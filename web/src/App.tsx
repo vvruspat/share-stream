@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ArrowUpTrayIcon,
   ComputerDesktopIcon,
   LockClosedIcon,
   MicrophoneIcon,
+  SpeakerWaveIcon,
+  PhoneXMarkIcon,
+  UserGroupIcon,
 } from "@heroicons/react/24/outline";
 import {
   Button,
@@ -50,17 +53,39 @@ function Session({
   token,
   name: accountName,
   roomName,
+  actions,
 }: {
   invite: Invitation | null;
   token: string;
   name?: string;
   roomName?: string;
+  actions?: ReactNode;
 }) {
   const { call, state, remotes, localScreen, error, run } = useCall(token);
   const [watching, setWatching] = useState("");
   const screens = remotes.filter((p) => p.screen && p.media.screen);
   const viewed = screens.find((p) => p.id === watching) || screens[0];
   const [joining, setJoining] = useState(false);
+  const [audioOpen, setAudioOpen] = useState(false);
+  useEffect(() => {
+    if (!audioOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      const target = event.target as Element;
+      if (!target.closest("#audio-panel, #audio-settings, [role=listbox]")) setAudioOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setAudioOpen(false);
+        document.getElementById("audio-settings")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [audioOpen]);
   const [sharing, setSharing] = useState(false);
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
@@ -78,7 +103,7 @@ function Session({
   );
   useEffect(() => {
     if (name) roster.rename(name);
-  }, [name, roster.rename]);
+  }, [name, roster.rename, state.active]);
   const reportError = useCallback(
     (failure: unknown) => {
       void run(() => {
@@ -159,14 +184,60 @@ function Session({
       : "For speakers: echo cancellation is on. macOS voice processing may lower other apps’ audio.";
   const own = roster.participants.find((p) => p.id === roster.id);
 
+  const participants = (
+    <section id="participants" aria-label="Participants">
+      <h2 id="participant-heading">Participants · {roster.participants.length}</h2>
+      {roster.unavailable && (
+        <p className="small" role="status">
+          Participant information is temporarily unavailable. Your media connection is unchanged.
+        </p>
+      )}
+      {!state.active && <p className="small">Join the session to see who is here.</p>}
+      <ul className="participant-list">
+        {roster.participants.map((p) => {
+          const self = p.id === roster.id;
+          const mic = self ? state.mic : p.mic;
+          const speaking = mic && (self ? state.speaking : p.speaking);
+          return (
+            <li key={p.id} className="participant" data-participant-id={p.id}>
+              <span className="avatar" aria-hidden="true">
+                {Array.from(p.name)[0]?.toUpperCase()}
+              </span>
+              <div className="participant-info">
+                <span className="participant-name">
+                  {p.name} {self && <span className="small">(you)</span>}
+                </span>
+                <span className="small">
+                  {p.music === "sending"
+                    ? "Sending music"
+                    : p.music === "listening"
+                      ? "Listening to music"
+                      : p.music === "connecting"
+                        ? "Connecting music…"
+                        : "Voice only · Plugin not connected"}
+                </span>
+              </div>
+              <span className={`participant-mic ${speaking ? "is-speaking" : ""}`}>
+                {!p.browser
+                  ? "Voice not joined"
+                  : speaking
+                    ? "Speaking"
+                    : mic
+                      ? "Mic on"
+                      : "Mic off"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
   return (
     <TooltipProvider delayDuration={250}>
       <main>
         <header className="page-header">
-          <h1>
-            Share Stream <span>/ {roomName || "Voice & screen"}</span>
-          </h1>
-          <div className="connection-controls">
+          <div>
+            <h1>{roomName || (invite ? "Voice & screen" : "Your rooms")}</h1>
             <span
               id="status"
               className={`status-badge ${state.state.startsWith("Connected") ? "is-connected" : ""}`}
@@ -175,23 +246,17 @@ function Session({
               <span className="status-dot" />
               {state.state.startsWith("Connected") ? "Connected" : state.state}
             </span>
-            {invite &&
-              (state.active ? (
-                <Button id="leave" variant="ghost" onClick={() => call.leave()}>
-                  Leave
-                </Button>
-              ) : (
-                <Button id="join" disabled={!supported || joining} onClick={() => void join()}>
-                  {joining ? "Joining…" : "Join session"}
-                </Button>
-              ))}
           </div>
+          {actions}
         </header>
-        {!invite && (
-          <div className="session-message" role="status">
-            Choose a saved room above, or open an invitation from your Share Stream plugin.
-          </div>
-        )}
+        <div className="music-context">
+          <span>Music streams through the plugin</span>
+          <span className="small">
+            {roster.participants.find((p) => p.music === "sending")?.name
+              ? `${roster.participants.find((p) => p.music === "sending")!.name} is sending music`
+              : "Voice & screen"}
+          </span>
+        </div>
         {screens.length > 1 && (
           <Select
             id="screen-select"
@@ -212,12 +277,52 @@ function Session({
               : "")
           }
           onError={reportError}
+          placeholder={
+            state.active ? (
+              viewed || localScreen ? null : (
+                participants
+              )
+            ) : (
+              <div className="room-preview">
+                <UserGroupIcon />
+                <h2>{invite ? roomName || "Ready when you are" : "Make room for the mix."}</h2>
+                <p className="small">
+                  {invite
+                    ? "Join to talk and watch. Your microphone and screen stay off."
+                    : "Choose a room or open an invitation to get started."}
+                </p>
+                {invite && (
+                  <Button
+                    id="join"
+                    variant="primary"
+                    disabled={!supported || joining}
+                    onClick={() => void join()}
+                  >
+                    {joining ? "Joining…" : "Join room"}
+                  </Button>
+                )}
+              </div>
+            )
+          }
+          afterControls={
+            state.active && (
+              <Button
+                id="leave"
+                variant="danger"
+                aria-label="Leave voice & screen"
+                onClick={() => call.leave()}
+              >
+                <PhoneXMarkIcon />
+                <span className="action-label">Leave</span>
+              </Button>
+            )
+          }
         >
           <Tooltip content={micLabel}>
             <Button
               id="mic"
               variant="ghost"
-              className="icon-button"
+              className="call-action"
               aria-label={micLabel}
               active={state.mic}
               aria-pressed={state.mic}
@@ -232,13 +337,14 @@ function Session({
               <span className={`media-icon ${!state.mic ? "is-off" : ""}`}>
                 <MicrophoneIcon />
               </span>
+              <span className="control-label">{state.mic ? "Mute" : "Microphone"}</span>
             </Button>
           </Tooltip>
           <Tooltip content={state.screen ? "Stop sharing" : "Share screen"}>
             <Button
               id="share"
               variant="ghost"
-              className="icon-button"
+              className="call-action"
               aria-label={state.screen ? "Stop sharing" : "Share screen"}
               active={state.screen}
               aria-pressed={state.screen}
@@ -262,128 +368,109 @@ function Session({
                 <ComputerDesktopIcon />
                 {!state.screen && <ArrowUpTrayIcon className="upload-arrow" />}
               </span>
+              <span className="control-label">
+                {state.screen ? "Stop sharing" : "Share screen"}
+              </span>
             </Button>
           </Tooltip>
-        </ScreenStage>
-        <MonitorSlider
-          id="volume"
-          value={volumeDb}
-          peaks={voicePeaks}
-          onValueChange={setVolumeDb}
-        />
-        <Disclosure title="Voice settings" id="voice-settings">
-          <div className="voice-settings-grid">
-            <div>
-              <Select
-                id="voice-mode"
-                label="Voice mode"
-                value={state.voiceMode}
-                options={modes}
-                disabled={state.micBusy}
-                describedBy="voice-mode-note"
-                onValueChange={(mode) =>
-                  void run(() => call.setVoiceMode(mode as VoiceMode, input))
+          <div className="audio-control">
+            <Button
+              id="audio-settings"
+              variant="ghost"
+              className="call-action"
+              aria-label="Audio settings"
+              aria-expanded={audioOpen}
+              aria-controls="audio-panel"
+              onClick={() => setAudioOpen(!audioOpen)}
+            >
+              <SpeakerWaveIcon />
+              <span className="control-label">Audio</span>
+            </Button>
+            <div
+              id="audio-panel"
+              className="audio-panel"
+              hidden={!audioOpen}
+              role="region"
+              aria-label="Audio settings"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setAudioOpen(false);
+                  document.getElementById("audio-settings")?.focus();
                 }
+              }}
+            >
+              <MonitorSlider
+                id="volume"
+                value={volumeDb}
+                peaks={voicePeaks}
+                onValueChange={setVolumeDb}
               />
-              <p id="voice-mode-note" className="small mode-note">
-                {modeNote}
-              </p>
-            </div>
-            <div className="device-grid">
-              <Select
-                id="input"
-                label="Microphone"
-                value={input}
-                options={inputs}
-                disabled={!call.micStream || state.micBusy}
-                onValueChange={(device) => {
-                  setInput(device);
-                  void run(() => call.microphone(device));
-                }}
-              />
-              <Select
-                id="output"
-                label="Voice output"
-                value={output}
-                options={
-                  outputSupported ? outputs : [{ value: "", label: "Use system audio settings" }]
-                }
-                disabled={!outputSupported}
-                onValueChange={setOutput}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="display-name">Your name</label>
-              <input
-                id="display-name"
-                maxLength={60}
-                value={name}
-                placeholder={own?.name || "Display name"}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  saveDisplayName(e.target.value);
-                  roster.rename(e.target.value);
-                }}
-              />
+              <Disclosure title="Voice settings" id="voice-settings">
+                <div className="voice-settings-grid">
+                  <div>
+                    <Select
+                      id="voice-mode"
+                      label="Voice mode"
+                      value={state.voiceMode}
+                      options={modes}
+                      disabled={state.micBusy}
+                      describedBy="voice-mode-note"
+                      onValueChange={(mode) =>
+                        void run(() => call.setVoiceMode(mode as VoiceMode, input))
+                      }
+                    />
+                    <p id="voice-mode-note" className="small mode-note">
+                      {modeNote}
+                    </p>
+                  </div>
+                  <div className="device-grid">
+                    <Select
+                      id="input"
+                      label="Microphone"
+                      value={input}
+                      options={inputs}
+                      disabled={!call.micStream || state.micBusy}
+                      onValueChange={(device) => {
+                        setInput(device);
+                        void run(() => call.microphone(device));
+                      }}
+                    />
+                    <Select
+                      id="output"
+                      label="Voice output"
+                      value={output}
+                      options={
+                        outputSupported
+                          ? outputs
+                          : [{ value: "", label: "Use system audio settings" }]
+                      }
+                      disabled={!outputSupported}
+                      onValueChange={setOutput}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="display-name">Your name</label>
+                    <input
+                      id="display-name"
+                      maxLength={60}
+                      value={name}
+                      placeholder={own?.name || "Display name"}
+                      onChange={(e) => {
+                        setName(e.target.value);
+                        saveDisplayName(e.target.value);
+                        roster.rename(e.target.value);
+                      }}
+                    />
+                  </div>
+                </div>
+                {state.voiceLimited && (
+                  <p className="small">Voice quality reduced to keep the call connected.</p>
+                )}
+              </Disclosure>
             </div>
           </div>
-          {state.voiceLimited && (
-            <p className="small">Voice quality reduced to keep the call connected.</p>
-          )}
-        </Disclosure>
-        <Disclosure
-          title={
-            <>
-              Participants <span className="participant-count">· {roster.participants.length}</span>
-            </>
-          }
-          id="participants"
-        >
-          {roster.unavailable && (
-            <p className="small" role="status">
-              Participant information is temporarily unavailable. Your media connection is
-              unchanged.
-            </p>
-          )}
-          {!state.active && <p className="small">Join the session to see who is here.</p>}
-          <ul className="participant-list">
-            {roster.participants.map((p) => {
-              const self = p.id === roster.id;
-              const mic = self ? state.mic : p.mic;
-              const speaking = mic && (self ? state.speaking : p.speaking);
-              return (
-                <li key={p.id} className="participant" data-participant-id={p.id}>
-                  <span className="avatar" aria-hidden="true">
-                    {Array.from(p.name)[0]?.toUpperCase()}
-                  </span>
-                  <div className="participant-info">
-                    <span className="participant-name">
-                      {p.name} {self && <span className="small">(you)</span>}
-                    </span>
-                    <span className="small">
-                      {p.music === "sending"
-                        ? "Sending music"
-                        : p.music === "listening"
-                          ? "Listening to music"
-                          : p.music === "connecting"
-                            ? "Connecting music…"
-                            : "Voice only · Plugin not connected"}
-                    </span>
-                  </div>
-                  <span className={`participant-mic ${speaking ? "is-speaking" : ""}`}>
-                    {!p.browser
-                      ? "Voice not joined"
-                      : speaking
-                        ? "Speaking"
-                        : mic
-                          ? "Mic on"
-                          : "Mic off"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </Disclosure>
+        </ScreenStage>
+        {(viewed || localScreen) && <div className="screen-participants">{participants}</div>}
         <RoomVoices
           peers={remotes}
           gainDb={volumeDb}
@@ -392,10 +479,9 @@ function Session({
           onError={reportError}
         />
         <footer>
-          <span>Music streams through the plugin</span>
           <span>
             <LockClosedIcon />
-            Private session · No recording
+            Private room · No recording
           </span>
         </footer>
       </main>

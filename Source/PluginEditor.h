@@ -17,6 +17,8 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     std::function<void()> onAudioSettings;
+    enum class RoomAction { copyInvite, pasteInvite, createRoom, saveRoom, renameRoom, inviteUser, joinRoom };
+    void performRoomAction(RoomAction);
 private:
     struct Content final : juce::Component {
         std::function<void(juce::Graphics&)> draw;
@@ -33,23 +35,25 @@ private:
     void roomDialog(int action);
     void selectRoom(const juce::var&);
     void rememberRoom();
+    void showAccountMenu();
+    void showRoomMenu(bool inviteOnly=false);
+    void showRoomPicker();
+    void showParticipants();
+    void openCollaboration();
     bool loadInvite(const juce::String&);
     ShareStreamProcessor& processor;
     MonitorLookAndFeel theme;
     juce::TooltipWindow tooltips {this,500};
     juce::Viewport viewport;
-    juce::TextButton send {"Send audio"}, receive {"Listen"}, connect {"Leave session"};
-    juce::TextButton create {"Create session"}, join {"Join session"}, newRoom {"New code"}, copy {"Copy invite"}, paste {"Paste invite"};
+    juce::TextButton send {"Send music"}, receive {"Listen"}, connect {"Start sending"};
+    juce::TextButton newRoom {"New code"}, paste {"Paste invite"};
     juce::TextButton audioSettings {"Audio output..."}, settings {"Audio & connection settings"};
-    juce::TextButton collaboration {"Voice & screen..."}, update {"Updates"};
+    juce::TextButton collaboration {"Voice & screen"}, update {"Updates"};
+    juce::TextButton accountMenu {"Sign in"}, roomMenu {"..."}, roomPicker {"Choose a room"}, invite {"Invite"}, participants {"Participants"};
     juce::SharedResourcePointer<sharestream::Updater> updater;
     juce::TextEditor server, port, room;
     juce::ComboBox buffer, quality;
-    juce::ComboBox accountList, roomList;
-    juce::TextButton accountLogin {"Add account"}, accountLogout {"Sign out"};
-    juce::TextButton createSaved {"New room"}, saveSaved {"Save current"}, renameSaved {"Rename"}, inviteSaved {"Invite user"};
     juce::Label directoryStatus;
-    juce::String directoryFingerprint;
     int directorySelection=0;
     juce::Slider monitor;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> monitorAttachment;
@@ -59,6 +63,9 @@ private:
     juce::String notice, boundParameter;
     int noticeTicks=0;
     bool settingsOpen=false;
+    bool browserPending=false;
+    juce::String browserCode, browserAccount;
+    int browserSequence=0;
     int monitorY=0, settingsY=0;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ShareStreamEditor)
 };

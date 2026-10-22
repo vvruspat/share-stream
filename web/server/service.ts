@@ -91,6 +91,18 @@ export function createService({
   clientDir = resolve("dist/client"),
 }: ServiceOptions = {}) {
   const directory = new Directory(dataDir);
+  const allowedOrigins = typeof origin === "string" ? [origin] : origin;
+  // Only explicit loopback development origins may use a non-Secure cookie.
+  // Never infer this from forwarded headers supplied with a request.
+  const secureBrowserCookies = !allowedOrigins.every((value) => {
+    const url = new URL(value);
+    return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  });
+  const browserCookieName = secureBrowserCookies
+    ? "__Host-sharestream-browser"
+    : "sharestream-browser";
+  const browserCookie = (token: string) =>
+    `${browserCookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secureBrowserCookies ? "; Secure" : ""}`;
   const directoryRates = new Map<string, { start: number; count: number }>();
   const rooms = new Map<string, Map<string, Member>>(),
     joins = new Map<string, { start: number; count: number }>();
@@ -106,18 +118,36 @@ export function createService({
       "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' blob:; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
   };
   const server = createServer(async (req, res) => {
-    if (req.url?.startsWith("/api/accounts/") || req.url?.startsWith("/api/rooms")) {
-      const reply = (status: number, body: unknown) =>
+    if (
+      req.url?.startsWith("/api/accounts/") ||
+      req.url?.startsWith("/api/browser/") ||
+      req.url?.startsWith("/api/rooms")
+    ) {
+      const reply = (status: number, body: unknown, cookie?: string) =>
         res
-          .writeHead(status, { ...headers, "Content-Type": "application/json" })
+          .writeHead(status, {
+            ...headers,
+            "Content-Type": "application/json",
+            ...(cookie ? { "Set-Cookie": cookie } : {}),
+          })
           .end(JSON.stringify(body));
+      const browserReply = (result: { cookieToken?: string }) => {
+        const { cookieToken, ...body } = result;
+        reply(200, body, cookieToken ? browserCookie(cookieToken) : undefined);
+      };
       try {
-        const allowed = typeof origin === "string" ? [origin] : origin;
-        if (req.headers.origin && !allowed.includes(req.headers.origin))
+        if (req.headers.origin && !allowedOrigins.includes(req.headers.origin))
           throw new DirectoryError("Origin not allowed.", 403);
-        const auth = req.url === "/api/accounts/register" || req.url === "/api/accounts/login";
+        const auth = [
+          "/api/accounts/register",
+          "/api/accounts/login",
+          "/api/browser/register",
+          "/api/browser/login",
+        ].includes(req.url);
         const ip = req.socket.remoteAddress || "unknown";
-        const key = `${auth ? "auth" : "rooms"}:${ip}`;
+        // Eight native clients and their browser companions can share one NAT.
+        // Session polling has its own budget alongside the existing room poll.
+        const key = `${auth ? "auth" : req.url.startsWith("/api/browser/") ? "browser" : "rooms"}:${ip}`;
         const previous = directoryRates.get(key),
           now = Date.now();
         const rate =
@@ -139,12 +169,72 @@ export function createService({
           if (!record(value) || Array.isArray(value)) throw new DirectoryError("Invalid request.");
           body = value;
         }
+        const field = (name: string) => (typeof body[name] === "string" ? body[name] : "");
+        const cookies = (req.headers.cookie || "")
+          .split(";")
+          .map((part) => part.trim())
+          .filter((part) => part.startsWith(`${browserCookieName}=`));
+        const browserToken =
+          cookies.length === 1 ? cookies[0].slice(browserCookieName.length + 1) : "";
+        const token = req.headers.authorization?.replace(/^Bearer /, "") || "";
+        const accountId = String(req.headers["x-sharestream-account"] || "");
+        const checkBrowserMutation = () => {
+          if (!allowedOrigins.includes(req.headers.origin || ""))
+            throw new DirectoryError("Origin not allowed.", 403);
+          directory.checkBrowserCsrf(browserToken, String(req.headers["x-csrf-token"] || ""));
+        };
+        if (req.url.startsWith("/api/browser/")) {
+          if (
+            (req.url === "/api/browser/session" && req.method === "GET") ||
+            (req.url === "/api/browser/reset" && req.method === "POST")
+          ) {
+            const reset = req.method === "POST";
+            if (reset && !allowedOrigins.includes(req.headers.origin || ""))
+              throw new DirectoryError("Origin not allowed.", 403);
+            const session = directory.startBrowser(browserToken, reset);
+            reply(
+              200,
+              { accounts: session.accounts, csrf: session.csrf },
+              session.created ? browserCookie(session.token) : undefined,
+            );
+            return;
+          }
+          if (req.method !== "POST") throw new DirectoryError("Not found.", 404);
+          checkBrowserMutation();
+          if (req.url === "/api/browser/login" || req.url === "/api/browser/register")
+            browserReply(
+              await directory.authenticateBrowser(
+                browserToken,
+                body,
+                req.url === "/api/browser/register",
+              ),
+            );
+          else if (req.url === "/api/browser/import")
+            browserReply(directory.importBrowser(browserToken, token));
+          else if (req.url === "/api/browser/logout")
+            reply(200, directory.logoutBrowser(browserToken, field("accountId")));
+          else if (req.url === "/api/browser/handoffs/prepare")
+            reply(
+              200,
+              directory.prepareBrowserHandoff(browserToken, field("ticket"), field("accountId")),
+            );
+          else if (req.url === "/api/browser/handoffs/confirm")
+            browserReply(directory.confirmBrowserHandoff(browserToken, field("handoffId")));
+          else throw new DirectoryError("Not found.", 404);
+          return;
+        }
         if (auth && req.method === "POST") {
           reply(200, await directory.authenticate(body, req.url === "/api/accounts/register"));
           return;
         }
-        const token = req.headers.authorization?.replace(/^Bearer /, "") || "";
-        const user = directory.user(token);
+        if (req.url === "/api/accounts/browser-handoffs" && req.method === "POST") {
+          reply(200, directory.createBrowserHandoff(token, field("roomId")));
+          return;
+        }
+        if (req.url.startsWith("/api/accounts/") && !token)
+          throw new DirectoryError("Sign in to your account.", 401);
+        if (!token && req.method !== "GET") checkBrowserMutation();
+        const user = token ? directory.user(token) : directory.browserUser(browserToken, accountId);
         let selected: string | undefined;
         if (req.url === "/api/accounts/logout" && req.method === "POST") directory.logout(token);
         else if (req.url === "/api/rooms" && req.method === "GET") {
@@ -225,11 +315,11 @@ export function createService({
     // and arbitrary filesystem paths never fall through to the SPA document.
     const path = req.url?.split("?")[0] || "/";
     const isAsset = /^\/assets\/[A-Za-z0-9_.-]+\.(js|css|svg|woff2?)$/.test(path);
-    if (path !== "/" && !isAsset) {
+    if (path !== "/" && path !== "/connect" && !isAsset) {
       res.writeHead(404, headers).end("Not found");
       return;
     }
-    const filename = path === "/" ? "index.html" : path.slice(1);
+    const filename = path === "/" || path === "/connect" ? "index.html" : path.slice(1);
     const contentType = filename.endsWith(".js")
       ? "text/javascript"
       : filename.endsWith(".css")
