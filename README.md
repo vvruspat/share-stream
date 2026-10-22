@@ -8,19 +8,20 @@
 
 [**Download**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
 
-![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/web.png)
+![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/group-web.png)
 
 Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
 Default relay: **stream.whitesquirrel.digital:48100 UDP**.
-Version **0.4.5** keeps one chat slot per participant when reopening a browser tab,
-so the music listener can also join voice and screen. Browser voice playback uses
-the native **Local monitor** fader style, with sample-level gain, stereo meters,
-mute and a 0 dB reset.
-It includes native **Voice & screen** links compatible with escaped invitations,
-a compact session interface, stereo monitoring meters,
-shared participant presence and remembered browser names. It includes live streaming
-quality (Float32, PCM24, Opus 320 kbps), independent Send/Listen monitoring,
-one-action invitations, GitHub Releases updates and combined installers.
+Version **0.5.0** adds persistent named rooms, username/password accounts and groups
+of up to eight people: one music sender, seven listeners, and voice/screen sharing
+for everyone. Compact room and account menus keep the main screen focused on the
+session. **Voice & screen** opens the browser in the same account and room without
+asking for the password again; first-time linking confirms the account name.
+Browser voice playback keeps the native **Local monitor** fader style, with
+sample-level gain, stereo meters, mute and a 0 dB reset. Live streaming quality
+(Float32, PCM24, Opus 320 kbps), independent Send/Listen monitoring, shared
+participant presence, remembered names, GitHub Releases updates and combined
+installers are retained.
 Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
 One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
 The browser service uses React, TypeScript and Vite+, with styled Radix UI controls

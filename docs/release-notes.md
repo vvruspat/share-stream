@@ -1,11 +1,15 @@
-Share Stream 0.4.5 fixes chat rooms filling up when one participant opens another browser tab.
+Share Stream 0.5.0 adds persistent rooms, group sessions and a simpler interface across the plugin, receiver and browser.
 
-- Opening **Voice & screen** again replaces your previous browser connection instead of taking the partner's place. The old tab stops its microphone and screen capture and does not reconnect automatically.
-- Native music and browser chat use the same private participant credential. The browser remembers it per room, so reopening an ordinary room link in the same browser restores that identity. A fresh link from your own plugin or standalone takes precedence over the saved identity.
-- Two people can each stream/listen to music and join voice and screen in the same room. The two-person limit still rejects a third person. Shared invitations never include your private participant credential.
-- Each new browser page still gets a fresh public signaling ID, preserving encryption replay protection across replacement. Regression tests cover two native presence records, repeated chat launches, received voice, decoded screen frames, and rejection of unauthenticated replacement.
+- Create an account with a username and password, keep multiple accounts signed in, and switch from the profile menu. Named rooms remain in your list after everyone leaves and after a server restart. Room creators can rename rooms and invite registered users; invitation links still work for guests.
+- Connect up to eight people: one sends music and up to seven listen. Each listener uses its own direct P2P connection with targeted relay fallback. Everyone can speak and share a screen; when several screens are shared, choose which one to watch.
+- Use a compact native room picker and account menu, or the browser room sidebar. Creation, invitation, rename and sign-in fields open in focused dialogs. Microphone, screen, audio and leave controls stay easy to reach on desktop and mobile.
+- **Voice & screen** opens the browser in the app's selected account and room without another password prompt. First-time linking or changing accounts asks **Continue as @username**. The browser uses a separate HttpOnly session; the launch link contains only a single-use ticket valid for one minute. Each tab keeps its own selected account.
+- Copying an invitation, importing or selecting a room never starts music. Start sending or connect to music explicitly. Microphone and screen capture always start off. Joining a saved room from the browser list also requires an explicit join.
+- Reopening your browser chat replaces your previous connection without taking another person's slot. Guest native links preserve their participant identity even if the browser already has a saved account. Account changes stop that tab's captures, and names remain intact after leaving and rejoining.
 
-All v0.4.4 monitor controls, invitation compatibility and earlier streaming, participant and quality controls are retained. Refresh the chat on both sides once after deployment so older tabs use the new participant binding.
+Existing monitor controls, invitation compatibility, live quality changes and device selection are retained. Update the plugin/receiver and refresh browser tabs before using group sessions; older native versions retain pair behavior.
+
+Saved room codes are encrypted on disk but can be read by the directory server. Invitation links remain valid; room deletion, member removal, invitation revocation and password recovery are not available in this release. Group upload bandwidth and CPU use increase with participant count.
 
 | Platform | Combined installer |
 | --- | --- |
