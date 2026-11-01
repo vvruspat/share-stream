@@ -21,7 +21,7 @@ public:
     explicit Setup(bool update,bool reopen):Thread("Share Stream installer"),reopenReceiver(update && reopen) {
         setSize(580,360);
         title.setText("Share Stream",juce::dontSendNotification);title.setFont(juce::Font(juce::FontOptions(34).withStyle("Bold")));
-        details.setText("Install " SHARE_STREAM_VERSION "\n\nStandalone receiver / VST3 / Audio Unit\nFor this user. No administrator password needed.\n\nSave your session. Restart the DAW and standalone after installation.",juce::dontSendNotification);
+        details.setText("Install " SHARE_STREAM_VERSION "\n\nReceiver / Chat / VST3 / Audio Unit\nChat requires macOS 13 or later.\nFor this user. No administrator password needed.\n\nSave your session. Restart the DAW and apps after installation.",juce::dontSendNotification);
         details.setColour(juce::Label::textColourId,juce::Colour(0xff91a49a));
         button.setButtonText("Install Share Stream");button.setColour(juce::TextButton::buttonColourId,juce::Colour(0xffb2f5ca));
         button.setColour(juce::TextButton::textColourOffId,juce::Colour(0xff101615));
@@ -48,12 +48,13 @@ private:
         result=sharestream::updates::install({
             {temp.getChildFile("Share Stream.vst3"),home.getChildFile("Library/Audio/Plug-Ins/VST3/Share Stream.vst3")},
             {temp.getChildFile("Share Stream.component"),home.getChildFile("Library/Audio/Plug-Ins/Components/Share Stream.component")},
-            {temp.getChildFile("Share Stream.app"),app()}},backup,signature);
+            {temp.getChildFile("Share Stream.app"),app()},
+            {temp.getChildFile("Share Stream Chat.app"),home.getChildFile("Applications/Share Stream Chat.app")}},backup,signature);
     }
     void timerCallback() override {
         if(isThreadRunning())return;stopTimer();button.setEnabled(true);
         done=result.wasOk();
-        details.setText(done?"Installed " SHARE_STREAM_VERSION ".\n\nThe standalone receiver, VST3 and Audio Unit are ready.\nRestart your DAW and any open standalone window.\nYour room and audio output settings are preserved.":result.getErrorMessage(),juce::dontSendNotification);
+        details.setText(done?"Installed " SHARE_STREAM_VERSION ".\n\nThe receiver, Chat app, VST3 and Audio Unit are ready.\nRestart your DAW, standalone and Chat windows.\nYour account, room and audio output settings are preserved.":result.getErrorMessage(),juce::dontSendNotification);
         button.setButtonText(done?"Open Share Stream":"Retry installation");
         if(done && reopenReceiver)juce::Timer::callAfterDelay(1000,[safe=juce::Component::SafePointer<Setup>(this)]{
             if(safe) {safe->app().startAsProcess();juce::JUCEApplication::quit();}
@@ -71,7 +72,7 @@ public:
         if(args=="--verify-payload") {
             const auto temp=juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("share-stream-verify-"+juce::Uuid().toString());
             auto result=sharestream::updates::extractArchive(payloadArchive(),temp);
-            for(auto name:{"Share Stream.vst3","Share Stream.component","Share Stream.app"})
+            for(auto name:{"Share Stream.vst3","Share Stream.component","Share Stream.app","Share Stream Chat.app"})
                 if(result.wasOk())result=signature(temp.getChildFile(name));
             temp.deleteRecursively();setApplicationReturnValue(result.wasOk()?0:1);quit();return;
         }

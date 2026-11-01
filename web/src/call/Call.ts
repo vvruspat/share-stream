@@ -88,7 +88,9 @@ export class Call extends EventTarget {
     return () => this.removeEventListener(type, listener);
   }
   constructor({
-    url = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/signal`,
+    url = typeof window !== "undefined" && window.shareStreamDesktop
+      ? window.shareStreamDesktop.serverOrigin.replace(/^http/, "ws") + "/signal"
+      : `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/signal`,
     resume = randomId(),
   } = {}) {
     super();

@@ -1,12 +1,8 @@
 #include "RoomDirectory.h"
-#include <filesystem>
+#include "AccountStore.h"
 
 namespace sharestream {
 namespace {
-juce::File accountFile() {
-    const auto override=juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_ACCOUNT_FILE",{});
-    return override.isNotEmpty()?juce::File(override):juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Share Stream/accounts.json");
-}
 juce::var accountSummaries(const juce::var& accounts) {
     juce::Array<juce::var> result;
     if(auto* list=accounts.getArray())for(const auto& account:*list){auto* summary=new juce::DynamicObject;summary->setProperty("user",account["user"].clone());result.add(juce::var(summary));}
@@ -14,7 +10,7 @@ juce::var accountSummaries(const juce::var& accounts) {
 }
 }
 RoomDirectory::RoomDirectory() : Thread("Share Stream rooms") {
-    if(juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_PRESENCE_URL",{})=="disabled")return;
+    if(!AccountStore::enabled())return;
     startThread();
 }
 RoomDirectory::~RoomDirectory() { signalThreadShouldExit();notify();stopThread(-1); }
@@ -26,11 +22,13 @@ juce::String RoomDirectory::participant(const juce::String& code) const {
 }
 juce::String RoomDirectory::name() const { std::lock_guard lock(mutex);return current.user["name"].toString(); }
 void RoomDirectory::request(juce::String path, juce::var body, juce::String method) {
-    { std::lock_guard lock(mutex);if(current.busy)return;current.busy=true;current.error={};current.notice={};if(path.startsWith("/api/accounts/")){++browserGeneration;current.browserTicket={};current.browserExpiresAt=0;}tasks.push_back({path,method,body,-1}); }
+    { std::lock_guard lock(mutex);if(current.busy)return;current.busy=true;current.error={};current.notice={};if(path.startsWith("/api/accounts/")){++browserGeneration;current.browserTicket={};current.browserExpiresAt=0;}tasks.push_back({path,method,body,-1,0,current.user["id"].toString()}); }
     notify();
 }
 void RoomDirectory::select(int index) {
-    { std::lock_guard lock(mutex);if(current.busy)return;current.busy=true;++browserGeneration;current.browserTicket={};current.browserExpiresAt=0;tasks.push_back({{},{},{},index}); }
+    { std::lock_guard lock(mutex);if(current.busy)return;auto* body=new juce::DynamicObject;
+      if(auto* list=current.accounts.getArray())if(index>0 && index<=list->size())body->setProperty("id",(*list)[index-1]["user"]["id"]);
+      current.busy=true;++browserGeneration;current.browserTicket={};current.browserExpiresAt=0;tasks.push_back({{},{},juce::var(body),index}); }
     notify();
 }
 bool RoomDirectory::requestBrowserHandoff(const juce::String& code, const juce::String& host, int port) {
@@ -40,7 +38,7 @@ bool RoomDirectory::requestBrowserHandoff(const juce::String& code, const juce::
         auto* body=new juce::DynamicObject;
         body->setProperty("code",code);body->setProperty("host",host);body->setProperty("port",port);
         current.busy=true;current.error={};current.notice={};current.browserTicket={};current.browserExpiresAt=0;
-        tasks.push_back({"/api/accounts/browser-handoffs","POST",juce::var(body),-1,++browserGeneration});
+        tasks.push_back({"/api/accounts/browser-handoffs","POST",juce::var(body),-1,++browserGeneration,current.user["id"].toString()});
     }
     notify();return true;
 }
@@ -62,45 +60,28 @@ juce::var RoomDirectory::perform(const Task& task, const juce::String& credentia
     if(!response.isObject())throw juce::String("Invalid room service response.");
     return response;
 }
-void RoomDirectory::save() {
-    juce::InterProcessLock lock("audio.sharestream.accounts");
-    if(!lock.enter(1000))throw juce::String("Could not save accounts. Try again.");
-    struct Unlock { juce::InterProcessLock& lock; ~Unlock(){lock.exit();} } unlock{lock};
-    const auto file=accountFile();
-    if(file.getParentDirectory().createDirectory().failed())throw juce::String("Could not create account storage.");
-    // Merge accounts added by another plug-in instance without losing them.
-    auto previous=juce::JSON::parse(file);
-    auto merged=accounts.clone();
-    if(auto* list=previous["accounts"].getArray())for(const auto& item:*list) {
-        bool found=false;for(const auto& mine:*merged.getArray())if(mine["user"]["id"]==item["user"]["id"])found=true;
-        if(!found && item["user"]["id"].toString()!=removedAccount)merged.getArray()->add(item);
-    }
-    accounts=merged;
-    auto* value=new juce::DynamicObject;value->setProperty("accounts",accounts);value->setProperty("active",active);
-    std::error_code error;
-    std::filesystem::permissions(file.getParentDirectory().getFullPathName().toStdString(),std::filesystem::perms::owner_all,std::filesystem::perm_options::replace,error);
-    if(error || !file.replaceWithText(juce::JSON::toString(juce::var(value),true)))throw juce::String("Could not save accounts.");
-    std::filesystem::permissions(file.getFullPathName().toStdString(),std::filesystem::perms::owner_read|std::filesystem::perms::owner_write,std::filesystem::perm_options::replace,error);
-    if(error)throw juce::String("Could not protect saved account credentials.");
-    removedAccount={};
+void RoomDirectory::reloadAccounts() {
+    const auto stored=AccountStore::read();
+    { std::lock_guard lock(mutex);current.sharedRoom=stored["room"].clone(); }
+    const auto snapshot=juce::JSON::toString(stored["accounts"],true)+":"+stored["active"].toString();
+    if(snapshot==storeSnapshot)return;
+    storeSnapshot=snapshot;accounts=stored["accounts"].clone();active=stored["active"].toString();
+    token={};juce::var user;
+    if(auto* list=accounts.getArray())for(const auto& item:*list)if(item["user"]["id"].toString()==active){token=item["token"].toString();user=item["user"];}
+    std::lock_guard lock(mutex);current.accounts=accountSummaries(accounts);current.user=user;current.rooms=juce::var();current.selected=juce::var();current.invitations=juce::var();current.error={};current.browserTicket={};current.browserExpiresAt=0;
 }
 void RoomDirectory::run() {
-    auto stored=juce::JSON::parse(accountFile());
-    if(stored["accounts"].isArray())accounts=stored["accounts"].clone();
-    active=stored["active"].toString();
-    auto activate=[&] {
-        token={};juce::var user;
-        if(auto* list=accounts.getArray())for(const auto& item:*list)if(item["user"]["id"].toString()==active){token=item["token"].toString();user=item["user"];}
-        std::lock_guard lock(mutex);current.accounts=accountSummaries(accounts);current.user=user;current.rooms=juce::var();current.selected=juce::var();current.error={};current.browserTicket={};current.browserExpiresAt=0;
-    };
-    activate();
+    double nextRefresh=0;
     while(!threadShouldExit()) {
         Task task;bool hasTask=false;
         { std::lock_guard lock(mutex);if(!tasks.empty()){task=tasks.front();tasks.pop_front();hasTask=true;} }
         try {
+            const auto previous=storeSnapshot;reloadAccounts();
+            if(previous!=storeSnapshot)nextRefresh=0;
+            if(hasTask && task.accountIndex<0 && task.path!="/api/accounts/login" && task.path!="/api/accounts/register" && task.account!=active)
+                throw juce::String("The active account changed. Try again.");
             if(hasTask && task.accountIndex>=0) {
-                active={};if(auto* list=accounts.getArray())if(task.accountIndex>0 && task.accountIndex<=list->size())active=(*list)[task.accountIndex-1]["user"]["id"].toString();
-                activate();save();
+                AccountStore::select(task.body["id"].toString());reloadAccounts();nextRefresh=0;
             } else if(hasTask && task.path=="/api/accounts/browser-handoffs") {
                 juce::var saved;
                 {
@@ -123,32 +104,35 @@ void RoomDirectory::run() {
                 current.browserExpiresAt=juce::Time::getMillisecondCounterHiRes()+45000;++current.browserSequence;}
             } else if(hasTask) {
                 juce::var response;
+                const auto actingAccount=active;
                 try { response=perform(task,token); }
                 catch(const juce::String&) { if(task.path!="/api/accounts/logout")throw; }
+                reloadAccounts();
+                if(task.path!="/api/accounts/login" && task.path!="/api/accounts/register" && task.path!="/api/accounts/logout" && actingAccount!=active)
+                    throw juce::String("The active account changed. Try again.");
                 if(response["token"].toString().isNotEmpty()) {
-                    active=response["user"]["id"].toString();token=response["token"].toString();
-                    auto next=accounts.clone();auto* list=next.getArray();
-                    for(int i=list->size();--i>=0;)if((*list)[i]["user"]["id"].toString()==active)list->remove(i);
-                    auto* item=new juce::DynamicObject;item->setProperty("user",response["user"]);item->setProperty("token",token);list->add(juce::var(item));accounts=next;activate();save();
+                    AccountStore::put(response["user"],response["token"].toString());reloadAccounts();
                 } else if(task.path=="/api/accounts/logout") {
-                    auto next=accounts.clone();auto* list=next.getArray();removedAccount=active;
-                    for(int i=list->size();--i>=0;)if((*list)[i]["user"]["id"].toString()==active)list->remove(i);
-                    accounts=next;active={};activate();save();
+                    AccountStore::remove(actingAccount);reloadAccounts();
                 }
                 if(response["selected"].toString().isNotEmpty()) {
                     if(auto* list=response["rooms"].getArray())for(const auto& room:*list)if(room["id"]==response["selected"]){std::lock_guard lock(mutex);current.selected=room;++current.selection;}
                 }
-                { std::lock_guard lock(mutex);current.notice=task.path.endsWith("/invitations")?"Room added to that user's list.":""; }
+                { std::lock_guard lock(mutex);current.notice=task.path.endsWith("/invitations")?"Invitation sent. They can accept it in the app.":""; }
             }
-            if(token.isNotEmpty() && (!hasTask || task.path!="/api/accounts/browser-handoffs")) {
+            if(token.isNotEmpty() && (hasTask || juce::Time::getMillisecondCounterHiRes()>=nextRefresh) && (!hasTask || task.path!="/api/accounts/browser-handoffs")) {
+                const auto actingAccount=active;
                 const auto response=perform({"/api/rooms","GET",{},-1},token);
-                std::lock_guard lock(mutex);current.rooms=response["rooms"];current.user=response["user"];current.accounts=accountSummaries(accounts);current.error={};
+                reloadAccounts();
+                if(actingAccount!=active){nextRefresh=0;continue;}
+                std::lock_guard lock(mutex);current.rooms=response["rooms"];current.invitations=response["invitations"];current.user=response["user"];current.accounts=accountSummaries(accounts);current.error={};
+                nextRefresh=juce::Time::getMillisecondCounterHiRes()+5000;
             }
-        } catch(const juce::String& error) { std::lock_guard lock(mutex);current.error=error; }
+        } catch(const juce::String& error) { std::lock_guard lock(mutex);current.error=error;nextRefresh=juce::Time::getMillisecondCounterHiRes()+5000; }
         // A command can arrive while the periodic directory refresh is in flight.
         // Keep it busy until that queued command is actually completed.
         { std::lock_guard lock(mutex);current.busy=!tasks.empty(); }
-        if(!threadShouldExit())wait(5000);
+        if(!threadShouldExit())wait(500);
     }
 }
 }

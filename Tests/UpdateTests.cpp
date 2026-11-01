@@ -9,6 +9,10 @@ static void check(bool condition,const char* message) {if(!condition)throw std::
 int main(int argc,char** argv) {
     using namespace sharestream::updates;
     try {
+        if(argc==4 && juce::String(argv[1])=="--extract") {
+            const auto result=extractArchive(juce::File(argv[2]),juce::File(argv[3]));
+            if(result.failed())std::cerr<<result.getErrorMessage()<<'\n';return result.wasOk()?0:1;
+        }
         check(newer("1.10.0","1.9.9"),"numeric semver comparison");
         for(auto v:{"0.4.0","0.3.9","0.5.0-beta.1","01.0.0","v1.0.0","1.2","1.2.3.4","9999999.0.0"})
             check(!newer(v,"0.4.0"),"invalid, same, old or prerelease not installed");
@@ -53,7 +57,7 @@ int main(int argc,char** argv) {
             auto payload=temp.getChildFile("payload");
             check(extractArchive(juce::File(argv[1]),payload).wasOk(),"signed macOS payload extraction");
             std::vector<InstallItem> items;
-            for(auto name:{"Share Stream.vst3","Share Stream.component","Share Stream.app"})
+            for(auto name:{"Share Stream.vst3","Share Stream.component","Share Stream.app","Share Stream Chat.app"})
                 items.push_back({payload.getChildFile(name),temp.getChildFile("installed").getChildFile(name)});
             result=install(items,temp.getChildFile("signed-backup"),[](const auto& file){
                 juce::ChildProcess verify;
@@ -61,7 +65,7 @@ int main(int argc,char** argv) {
                     && verify.waitForProcessToFinish(15000) && verify.getExitCode()==0;
                 return okay?juce::Result::ok():juce::Result::fail("invalid signature");
             });
-            check(result.wasOk(),"all three signed bundles install in one transaction");
+            check(result.wasOk(),"all four signed bundles install in one transaction");
             check(access(temp.getChildFile("installed/Share Stream.app/Contents/MacOS/Share Stream").getFullPathName().toRawUTF8(),X_OK)==0,"installed standalone executable permission preserved");
         }
 #else

@@ -6,6 +6,7 @@ import {
   PlusIcon,
   SpeakerWaveIcon,
   UserPlusIcon,
+  BellIcon,
 } from "@heroicons/react/24/outline";
 import { Button, Menu, MenuItem, Modal } from "./ui/index.js";
 import { randomId } from "../call/crypto.js";
@@ -27,7 +28,7 @@ import {
   type Handoff,
   type DirectoryResponse,
 } from "../call/browserSession.js";
-import type { Account, SavedRoom } from "../../shared/directory.js";
+import type { Account, SavedRoom, RoomInvitation } from "../../shared/directory.js";
 
 type Selection = {
   invite: Invitation | null;
@@ -37,7 +38,15 @@ type Selection = {
   actions?: ReactNode;
   guestBinding?: boolean;
 };
-type DialogKind = "account" | "create" | "accept" | "rename" | "invite" | "handoff" | null;
+type DialogKind =
+  | "account"
+  | "create"
+  | "accept"
+  | "rename"
+  | "invite"
+  | "handoff"
+  | "notifications"
+  | null;
 const guestBindingKey = "sharestream:guest-binding:v1";
 function clearGuestBinding() {
   try {
@@ -117,6 +126,7 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
   });
   const [ready, setReady] = useState(false);
   const [rooms, setRooms] = useState<SavedRoom[]>([]);
+  const [invitations, setInvitations] = useState<RoomInvitation[]>([]);
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [handoff, setHandoff] = useState<Handoff | null>(null);
   const [username, setUsername] = useState("");
@@ -133,6 +143,7 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
     active: string;
     handoff?: Handoff;
     rooms: SavedRoom[];
+    invitations: RoomInvitation[];
   }> | null>(null);
   const setAccount = useCallback((id: string) => {
     activeRef.current = id;
@@ -144,6 +155,7 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
     history.replaceState(null, "", "/");
     setSelection({ invite: null, token: randomId() });
     setRooms([]);
+    setInvitations([]);
     setError("");
     setNotice("");
   }, []);
@@ -203,7 +215,13 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
         : undefined;
       const data =
         id && !pending ? await browserRequest("/api/rooms", "GET", undefined, id) : undefined;
-      return { session, active: id, handoff: pending, rooms: data?.rooms || [] };
+      return {
+        session,
+        active: id,
+        handoff: pending,
+        rooms: data?.rooms || [],
+        invitations: data?.invitations || [],
+      };
     })();
     void bootstrap.current
       .then(async (result) => {
@@ -211,6 +229,7 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
         setAccounts(result.session.accounts);
         setAccount(result.active);
         setRooms(result.rooms);
+        setInvitations(result.invitations);
         if (result.handoff) {
           markPendingHandoff(true);
           setHandoff(result.handoff);
@@ -270,7 +289,10 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
     const refresh = () =>
       void browserRequest("/api/rooms", "GET", undefined, current.id)
         .then((data) => {
-          if (live) setRooms(data.rooms || []);
+          if (live) {
+            setRooms(data.rooms || []);
+            setInvitations(data.invitations || []);
+          }
         })
         .catch(async (failure) => {
           if (!live) return;
@@ -352,6 +374,11 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
   };
   const actions = (
     <div className="room-header-actions">
+      {current && (
+        <Button aria-label="Invitations" onClick={() => show("notifications")}>
+          <BellIcon /> Invitations {invitations.length || ""}
+        </Button>
+      )}
       {selection.invite && (
         <Button aria-label="Invite people" onClick={() => show("invite")}>
           <UserPlusIcon />
@@ -575,7 +602,9 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
                   ? "Rename room"
                   : dialog === "handoff"
                     ? "Continue from the app"
-                    : "Invite people"
+                    : dialog === "notifications"
+                      ? "Invitations"
+                      : "Invite people"
         }
       >
         {dialog === "account" && (
@@ -619,7 +648,7 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
                 type="password"
                 autoComplete={register ? "new-password" : "current-password"}
                 required
-                minLength={10}
+                minLength={3}
                 maxLength={128}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -709,7 +738,7 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
                     );
                     setRooms(data.rooms || []);
                     setValue("");
-                    setNotice("Room added to that user's list.");
+                    setNotice("Invitation sent. They can accept it in the app.");
                   });
                 }}
               >
@@ -747,6 +776,54 @@ export function RoomDirectory({ children }: { children: (selection: Selection) =
                 <p className="small">{selected.members.map((m) => `@${m.username}`).join(", ")}</p>
               </details>
             )}
+          </div>
+        )}
+        {dialog === "notifications" && (
+          <div className="dialog-form">
+            {!invitations.length && <p>No pending invitations.</p>}
+            {invitations.map((invitation) => (
+              <section key={invitation.id}>
+                <h2>{invitation.room.name}</h2>
+                <p>{invitation.from.name} invited you.</p>
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      const data = await browserRequest(
+                        `/api/invitations/${invitation.id}/accept`,
+                        "POST",
+                        {},
+                        current!.id,
+                      );
+                      setRooms(data.rooms || []);
+                      setInvitations(data.invitations || []);
+                      const joined = data.rooms?.find((room) => room.id === data.selected);
+                      if (joined) open(joined, current);
+                      setDialog(null);
+                    })
+                  }
+                >
+                  Accept and join
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      const data = await browserRequest(
+                        `/api/invitations/${invitation.id}/decline`,
+                        "POST",
+                        {},
+                        current!.id,
+                      );
+                      setInvitations(data.invitations || []);
+                    })
+                  }
+                >
+                  Decline
+                </Button>
+              </section>
+            ))}
           </div>
         )}
         {dialog === "handoff" && handoff && (

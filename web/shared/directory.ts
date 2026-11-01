@@ -17,6 +17,12 @@ export interface SavedRoom {
   participant: string;
   members: Account[];
 }
+export interface RoomInvitation {
+  id: string;
+  room: { id: string; name: string };
+  from: Account;
+  createdAt: number;
+}
 export interface BrowserSession {
   accounts: Account[];
   csrf: string;

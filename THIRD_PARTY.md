@@ -20,7 +20,11 @@
   Heroicons 2.2.0 (MIT), https://github.com/tailwindlabs/heroicons.
   Build tooling: Vite+ 1.3.0 (MIT), https://github.com/voidzero-dev/vite-plus;
   TypeScript 7.0.2 (Apache-2.0), https://github.com/microsoft/TypeScript.
-  These web dependencies are not bundled into the native macOS binaries.
+  The client dependencies are bundled into Share Stream Chat. Their licence
+  texts are included in the Chat app's `Contents/Resources/Licenses` directory.
+- Desktop chat: Electron 45.2.1 (MIT), https://github.com/electron/electron.
+  Its Electron and Chromium notices are included in the same Licenses directory.
+  Packager 20.3.0 and osx-sign 2.7.2 are build tools, not runtime dependencies.
 - TURN service: coturn 4.18.0, Docker image `coturn/coturn:4.18.0-r0-alpine`,
   BSD-3-Clause, https://github.com/coturn/coturn/blob/master/LICENSE.
 - Browser QA: Playwright 1.64.1, Apache-2.0, https://github.com/microsoft/playwright.

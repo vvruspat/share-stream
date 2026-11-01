@@ -24,7 +24,7 @@ public:
         setAudioChannels(0,2,deviceState.get());
     }
     ~ReceiverComponent() override {
-        processor.stop();shutdownAudio();
+        shutdownAudio();
         if(auto* properties=settings.getUserSettings()) {
             juce::MemoryBlock data;processor.getStateInformation(data);properties->setValue("state",data.toBase64Encoding());
             if(auto xml=deviceManager.createStateXml())properties->setValue("output-device",xml.get());

@@ -10,7 +10,13 @@ import {
   createDecipheriv,
 } from "node:crypto";
 import { promisify } from "node:util";
-import type { Account, BrowserHandoff, BrowserSession, SavedRoom } from "../shared/directory.js";
+import type {
+  Account,
+  BrowserHandoff,
+  BrowserSession,
+  SavedRoom,
+  RoomInvitation,
+} from "../shared/directory.js";
 
 const scrypt = promisify(derive);
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -37,8 +43,12 @@ function credentials(body: Record<string, unknown>) {
     throw new DirectoryError(
       "Use 3–32 letters, numbers, dots, underscores or hyphens for the username.",
     );
-  if (typeof body.password !== "string" || body.password.length < 10 || body.password.length > 128)
-    throw new DirectoryError("Use a password of 10–128 characters.");
+  if (
+    typeof body.password !== "string" ||
+    Array.from(body.password).length < 3 ||
+    body.password.length > 128
+  )
+    throw new DirectoryError("Use a password of 3–128 characters.");
   return { username, password: body.password };
 }
 type Row = Record<string, string | number | null | Uint8Array>;
@@ -84,6 +94,7 @@ export class Directory {
       CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS saved_rooms (id TEXT PRIMARY KEY, name TEXT NOT NULL, secret TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, owner_id TEXT NOT NULL REFERENCES users(id));
       CREATE TABLE IF NOT EXISTS members (room_id TEXT NOT NULL REFERENCES saved_rooms(id), user_id TEXT NOT NULL REFERENCES users(id), participant TEXT NOT NULL, PRIMARY KEY(room_id, user_id));
+      CREATE TABLE IF NOT EXISTS room_invitations (id TEXT PRIMARY KEY, room_id TEXT NOT NULL REFERENCES saved_rooms(id), user_id TEXT NOT NULL REFERENCES users(id), inviter_id TEXT NOT NULL REFERENCES users(id), created INTEGER NOT NULL, UNIQUE(room_id, user_id));
       CREATE TABLE IF NOT EXISTS browser_sessions (id TEXT PRIMARY KEY, csrf TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS browser_grants (browser_id TEXT NOT NULL REFERENCES browser_sessions(id) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id), expires INTEGER NOT NULL, PRIMARY KEY(browser_id, user_id));
       CREATE TABLE IF NOT EXISTS browser_tickets (id TEXT PRIMARY KEY, source_session TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE, user_id TEXT NOT NULL REFERENCES users(id), room_id TEXT NOT NULL REFERENCES saved_rooms(id), expires INTEGER NOT NULL);
@@ -459,11 +470,57 @@ export class Directory {
         .prepare("SELECT id FROM users WHERE username = ?")
         .get(text(body.username, 32).toLowerCase());
       if (!target) throw new DirectoryError("No account has that username.", 404);
-      this.addMember(room, String(target.id));
+      const targetId = String(target.id);
+      if (
+        this.db
+          .prepare("SELECT 1 FROM members WHERE room_id = ? AND user_id = ?")
+          .get(room, targetId)
+      )
+        throw new DirectoryError("This person has already joined the room.", 409);
+      if (
+        Number(
+          this.db
+            .prepare("SELECT count(*) AS n FROM room_invitations WHERE user_id = ?")
+            .get(targetId)!.n,
+        ) >= 100
+      )
+        throw new DirectoryError("This person has too many pending invitations.", 409);
+      this.db
+        .prepare(
+          "INSERT INTO room_invitations VALUES (?, ?, ?, ?, ?) ON CONFLICT(room_id, user_id) DO NOTHING",
+        )
+        .run(random(), room, targetId, user.id, this.now());
     } else
       this.db
         .prepare("UPDATE saved_rooms SET name = ? WHERE id = ?")
         .run(text(body.name, 60), room);
+  }
+  invitations(user: Account): RoomInvitation[] {
+    return (
+      this.db
+        .prepare(`SELECT i.id, i.created, r.id AS room_id, r.name AS room_name,
+      u.id AS inviter_id, u.username, u.name FROM room_invitations i
+      JOIN saved_rooms r ON r.id = i.room_id JOIN users u ON u.id = i.inviter_id
+      WHERE i.user_id = ? ORDER BY i.created DESC`)
+        .all(user.id) as Row[]
+    ).map((row) => ({
+      id: String(row.id),
+      room: { id: String(row.room_id), name: String(row.room_name) },
+      from: { id: String(row.inviter_id), username: String(row.username), name: String(row.name) },
+      createdAt: Number(row.created),
+    }));
+  }
+  respondToInvitation(user: Account, id: string, accept: boolean): string | undefined {
+    return this.transaction(() => {
+      const invitation = this.db
+        .prepare("SELECT room_id FROM room_invitations WHERE id = ? AND user_id = ?")
+        .get(id, user.id);
+      if (!invitation) throw new DirectoryError("This invitation is no longer available.", 404);
+      const room = String(invitation.room_id);
+      if (accept) this.addMember(room, user.id);
+      this.db.prepare("DELETE FROM room_invitations WHERE id = ? AND user_id = ?").run(id, user.id);
+      return accept ? room : undefined;
+    });
   }
   close() {
     this.db.close();

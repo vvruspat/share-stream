@@ -1,34 +1,33 @@
 # Accounts and saved rooms
 
-The plugin, standalone receiver and browser use the same server accounts. Open
-the profile menu to add an account or sign in. Usernames use
-3–32 ASCII letters, numbers, dots, underscores or hyphens; passwords use 10–128
-characters. Multiple accounts can stay signed in on a device and can be selected
-without re-entering their passwords. Opening **Voice & screen** from a signed-in
-app also signs the browser into the selected account through a short-lived
-handoff; it does not ask for the password again.
+The plugin, standalone receiver and Share Stream Chat share one active local
+account. Usernames use 3–32 ASCII letters, numbers, dots, underscores or hyphens;
+passwords accept **any 3–128 characters**, including spaces and Unicode. Passwords
+are never saved on clients. Sign in once in any native client or Chat; the other
+running clients notice the change automatically. Multiple accounts can be stored.
 
-Create a named room from the room picker or the **+** action beside the browser's
-room list. Room creation, joining by invitation and renaming use focused dialogs;
-the normal room screen contains no account or room-management forms. Created
-and accepted rooms are saved for the signed-in account. An unnamed imported
-session starts as “Music room”; the first account to save it becomes its creator.
+**Voice & screen** launches **Share Stream Chat.app** directly. An existing Chat
+instance focuses and joins the native client's room using that account's same
+participant binding. No web page, second login or second invitation is needed.
+Create/join/rename/invite, accounts, participants and audio settings open separate
+app windows. macOS 13+ is required for Chat; the music clients retain macOS 12.
 
-The creator can rename a room and invite an existing username. That invitation
-adds the room directly to the user's list, including when they are offline. Lists
-refresh every five seconds. Copying an invitation from **Invite** still produces
-a bearer link: anyone holding it can save the room in their own account. Renaming
-keeps the code, membership and old invitation links intact.
+The room creator can rename a room; all clients receive the new name on their
+next five-second directory refresh. Codes, membership and existing invitations
+remain valid. An invitation sent to a username is a **pending notification**,
+including while the recipient is offline. It appears in Invitations and the app
+badge; when Chat is running it also produces a macOS notification if permitted.
+The recipient must choose **Accept and join** or **Decline**. Until acceptance,
+no membership or room code is granted. Copy code/link remains a bearer invitation:
+anyone holding it can explicitly join the room.
 
-In the native UI, select a room and explicitly start sending or connect to its
-music, or choose **Voice & screen** for browser chat. Copying an invitation,
-creating, importing or selecting a room never starts music. In the browser,
-selecting a room previews it; joining is a separate action. The native browser
-handoff may join the selected room, with microphone and screen capture off.
-Leaving disconnects
-media, without removing the room or membership. Restoring a project/account or
-reloading the page never starts music or capture. Switching accounts disconnects
-the active native stream or browser call; browser captures are stopped.
+Room, Send/Listen role, network quality/buffer and monitor settings persist locally.
+On launch the last music connection resumes automatically. DAW project state also
+remembers connection intent; explicit Disconnect stays disconnected. If music is
+already connected, selecting a different room keeps that role and connection.
+Chat restores the selected room, while **microphone and screen always start off**.
+Leaving voice stops capture without deleting the saved room or stopping native
+music. Reopening Voice & screen can join the same chat again.
 
 Up to 64 accounts can save a room and each account can save 100 rooms. Media
 supports eight simultaneous participants: one native sender and up to seven
@@ -57,8 +56,13 @@ and saved accounts remain signed in. When offline, native sign-out still forgets
 the local token, which remains valid on the server until expiration or successful
 revocation. Native login tokens are stored in the user's
 `Share Stream/accounts.json`, never in DAW project state or shared invitations.
-Native settings use an owner-only directory/file on POSIX systems and the user's
-application-data directory on Windows. Passwords are never persisted on clients.
+On macOS the shared file is `~/Library/Share Stream/accounts.json` (0700 parent,
+0600 file). Native clients and the Chat session helper lock the same permanent
+`accounts.json.lock` sidecar (0600) before reading/editing the store, then replace
+JSON atomically. This also excludes writers in different threads of one DAW.
+A busy or unusable lock leaves accounts unchanged. Account tokens stay in native/main-process
+memory and are not returned to Electron renderers. DAW state contains no tokens.
+Local music snapshots are scoped to the active account and plugin/receiver kind. Passwords are never persisted on clients.
 
 The browser uses an opaque, host-only HttpOnly cookie and server-side account
 grants. Production cookies require HTTPS and use SameSite protection; browser
@@ -68,9 +72,9 @@ remember several accounts, while each tab selects its own account. Signing out
 removes that browser's grant for the selected account; its other tabs observe the
 revocation and stop the affected calls. Other accounts remain available.
 
-## Opening the browser from the app
+## Legacy browser handoff
 
-The native client authenticates a request for a one-use handoff ticket, bound to
+The retained browser compatibility API authenticates a request for a one-use handoff ticket, bound to
 its session, account and saved room. The ticket expires after 60 seconds. Only
 its hash is stored. The browser removes the ticket from the URL fragment before
 initializing the room and prepares the exchange through a JSON POST. Preparation

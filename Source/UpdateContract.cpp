@@ -1,5 +1,6 @@
 #include "UpdateContract.h"
 #include <array>
+#include <set>
 namespace sharestream::updates {
 static std::optional<std::array<int,3>> version(const juce::String& s) {
     auto parts=juce::StringArray::fromTokens(s,".","");
@@ -39,17 +40,35 @@ juce::String platformAsset() {
     return juce::File("/etc/fedora-release").existsAsFile() ? "ShareStream-Fedora-x86_64.rpm" : "ShareStream-Ubuntu-amd64.deb";
 #endif
 }
-static juce::Result validateZip(juce::ZipFile& zip) {
+// Electron frameworks use only these two internal relative-link shapes. Never
+// allow arbitrary archive symlinks or files written through a symlink parent.
+static bool frameworkLink(juce::ZipFile& zip,int index,const juce::String& path) {
+    const juce::String marker="/Share Stream Chat.app/Contents/Frameworks/";
+    const auto full="/"+path;const auto start=full.indexOf(marker);
+    if(start<0)return false;
+    const auto parts=juce::StringArray::fromTokens(full.substring(start+marker.length()),"/","");
+    if(parts.size()<2 || !parts[0].endsWith(".framework"))return false;
+    juce::String expected;
+    if(parts.size()==3 && parts[1]=="Versions" && parts[2]=="Current")expected="A";
+    else if(parts.size()==2 && parts[1]!="Versions")expected="Versions/Current/"+parts[1];
+    if(expected.isEmpty() || zip.getEntry(index)->uncompressedSize>1024)return false;
+    std::unique_ptr<juce::InputStream> input(zip.createStreamForEntry(index));
+    return input && input->readEntireStreamAsString()==expected;
+}
+static juce::Result validateZip(juce::ZipFile& zip,bool frameworks=false) {
     if(zip.getNumEntries()==0 || zip.getNumEntries()>12000)return juce::Result::fail("Invalid installer archive.");
-    juce::int64 total=0;
+    juce::int64 total=0;std::set<juce::String> paths;juce::StringArray links;
     for(int i=0;i<zip.getNumEntries();++i) {
         const auto* e=zip.getEntry(i);
-        const auto path=e->filename.replaceCharacter('\\','/');
+        const auto path=e->filename.replaceCharacter('\\','/').trimCharactersAtEnd("/");
         total+=e->uncompressedSize;
-        if(e->isSymbolicLink || path.isEmpty() || path.startsWithChar('/') || path.containsChar(':')
-           || juce::StringArray::fromTokens(path,"/","").contains("..") || total>1024LL*1024*1024)
+        const auto components=juce::StringArray::fromTokens(path,"/","");
+        if((e->isSymbolicLink && (!frameworks || !frameworkLink(zip,i,path))) || path.isEmpty() || path.startsWithChar('/') || path.containsChar(':')
+           || components.contains("..") || components.contains(".") || !paths.insert(path).second || total>1024LL*1024*1024)
             return juce::Result::fail("Unsafe installer archive.");
+        if(e->isSymbolicLink)links.add(path);
     }
+    for(const auto& path:paths)for(const auto& link:links)if(path.startsWith(link+"/"))return juce::Result::fail("Installer archive writes through a symbolic link.");
     return juce::Result::ok();
 }
 juce::Result extractZip(juce::ZipFile& zip,const juce::File& root) {
@@ -64,8 +83,9 @@ juce::Result extractZip(juce::ZipFile& zip,const juce::File& root) {
 }
 juce::Result extractArchive(const juce::File& file,const juce::File& root) {
     juce::ZipFile zip(file);
-    if(auto result=validateZip(zip);result.failed())return result;
 #if JUCE_MAC
+    if(auto result=validateZip(zip,true);result.failed())return result;
+    if(root.isSymbolicLink() || (root.exists() && (!root.isDirectory() || !root.findChildFiles(juce::File::findFilesAndDirectories,false).isEmpty())))return juce::Result::fail("Installer extraction needs an empty directory.");
     // ditto restores executable bits, AppleDouble metadata and stapled tickets.
     juce::ChildProcess process;
     if(!process.start(juce::StringArray{"/usr/bin/ditto","-x","-k",file.getFullPathName(),root.getFullPathName()})

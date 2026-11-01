@@ -1,6 +1,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Invitation.h"
+#include "AccountStore.h"
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -70,6 +71,14 @@ static juce::Component* control(juce::Component& parent,const juce::String& id) 
 static void monitorControls() {
     ShareStreamProcessor processor;processor.prepareToPlay(48000,128);
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    const auto originalSize=editor->getBounds();
+    juce::TextButton* settings=nullptr;
+    std::function<void(juce::Component&)> findSettings=[&](juce::Component& parent){for(auto* child:parent.getChildren()){if(auto* button=dynamic_cast<juce::TextButton*>(child);button && button->getButtonText()=="Settings")settings=button;findSettings(*child);}};
+    findSettings(*editor);check(settings!=nullptr,"Settings action exists");settings->onClick();
+    check(editor->getBounds()==originalSize,"opening native Settings never expands the editor");
+    bool separate=false;
+    for(int i=0;i<juce::TopLevelWindow::getNumTopLevelWindows();++i)if(auto* window=juce::TopLevelWindow::getTopLevelWindow(i);window->getName().contains("Settings") && window->isVisible())separate=true;
+    check(separate,"native Settings opens a separate top-level window");
     auto* slider=dynamic_cast<juce::Slider*>(control(*editor,"local-monitor"));
     auto* send=dynamic_cast<juce::TextButton*>(control(*editor,"send-role"));
     auto* listen=dynamic_cast<juce::TextButton*>(control(*editor,"listen-role"));
@@ -216,6 +225,43 @@ static void invitationActions(Relay& relay) {
 int main(int argc,char** argv) {
     try {
         juce::ScopedJuceInitialiser_GUI gui;
+        if(argc==2 && std::string(argv[1])=="--resume-session") {
+            Relay relay;StreamEngine sender;sender.prepare(48000,128);
+            Connection c;c.host="127.0.0.1";c.port=relay.port;c.code=newRoomCode();c.jitterMs=10;
+            check(sender.connect(c),"start persistent-session sender");
+            c.role=Role::receive;
+            {
+                ShareStreamProcessor previous;previous.setConfiguration(c);previous.prepareToPlay(48000,128);
+                setGain(previous,"listenMonitorDb",-6);check(previous.start(),"connect before quitting DAW");
+                previous.releaseResources(); // DAW teardown is not an explicit Disconnect.
+            }
+            {
+                ShareStreamProcessor next;
+                check(next.configuration().code==c.code && next.configuration().role==Role::receive,"fresh native instance restores its room and role without DAW state");
+                check(next.statistics().waitingForAudio,"fresh native instance restores music connection intent");
+                next.prepareToPlay(48000,128);
+                receive(sender,next,48000,128,juce::Decibels::decibelsToGain(-6.0f));next.stop();
+            }
+            ShareStreamProcessor stopped;stopped.prepareToPlay(48000,128);
+            check(!stopped.statistics().running,"explicit Disconnect survives a fresh native instance");
+            std::cout<<"PASS: persisted room, Listen, music intent and monitor gain across native instances\n";return 0;
+        }
+        if(argc==3 && std::string(argv[1])=="--watch-account") {
+            RoomDirectory plugin,standalone;
+            const auto deadline=juce::Time::getMillisecondCounterHiRes()+15000;
+            while(juce::Time::getMillisecondCounterHiRes()<deadline
+                && (plugin.state().user["username"].toString()!=argv[2] || standalone.state().user["username"].toString()!=argv[2]))juce::Thread::sleep(25);
+            check(plugin.state().user["username"].toString()==argv[2] && standalone.state().user["username"].toString()==argv[2],"already-running native instances adopt a login from the desktop");
+            std::cout<<"PASS: both native instances share the desktop login\n";return 0;
+        }
+        if(argc==2 && std::string(argv[1])=="--native-login") {
+            std::string input;std::getline(std::cin,input);const auto body=juce::JSON::parse(input);
+            RoomDirectory directory;directory.request("/api/accounts/login",body);
+            const auto deadline=juce::Time::getMillisecondCounterHiRes()+15000;
+            while(juce::Time::getMillisecondCounterHiRes()<deadline && directory.state().user["username"].toString()!=body["username"].toString())juce::Thread::sleep(25);
+            check(directory.state().user["username"]==body["username"],"native login succeeds");
+            std::cout<<"PASS: native login saved for the desktop\n";return 0;
+        }
         if(argc==4 && std::string(argv[1])=="--directory-probe") {
             auto body=[](std::initializer_list<std::pair<juce::String,juce::var>> fields){auto* object=new juce::DynamicObject;for(const auto& field:fields)object->setProperty(field.first,field.second);return juce::var(object);};
             const auto password=juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_TEST_PASSWORD",{});
@@ -234,9 +280,12 @@ int main(int argc,char** argv) {
                 directory.request("/api/rooms/"+id,body({{"name","Native renamed"}}),"PATCH");
                 wait([&]{const auto state=directory.state();return !state.busy && state.rooms.isArray() && (*state.rooms.getArray())[0]["name"].toString()=="Native renamed";});
                 directory.request("/api/rooms/"+id+"/invitations",body({{"username",juce::String(argv[3])}}));
-                wait([&]{const auto state=directory.state();return !state.busy && state.rooms.isArray() && (*state.rooms.getArray())[0]["members"].size()==2;});
+                wait([&]{const auto state=directory.state();return !state.busy && state.notice.contains("Invitation sent");});
                 directory.request("/api/accounts/login",body({{"username",juce::String(argv[3])},{"password",password}}));
                 wait([&]{return !directory.state().busy && directory.state().user["username"].toString()==argv[3];});
+                check(directory.state().rooms.size()==0 && directory.state().invitations.size()==1,"a native invitation requires recipient consent");
+                directory.request("/api/invitations/"+directory.state().invitations[0]["id"].toString()+"/accept");
+                wait([&]{return !directory.state().busy && directory.state().rooms.size()==1;});
                 check(directory.participant(code).isNotEmpty() && directory.participant(code)!=participant,"different accounts have separate room identities");
                 directory.select(1);
                 wait([&]{return !directory.state().busy && directory.state().user["username"].toString()==argv[2];});
@@ -347,7 +396,17 @@ int main(int argc,char** argv) {
         check(processor.start(),"reconnect before restore");
         processor.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
         processor.prepareToPlay(48000,128);
-        check(!processor.statistics().running,"session restore still requires explicit Connect");
+        check(!processor.statistics().running,"a saved Disconnect remains disconnected after restore");
+        check(processor.start(),"start before saving connected state");
+        processor.getStateInformation(saved);
+        ShareStreamProcessor resumed;
+        resumed.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
+        resumed.prepareToPlay(48000,128);
+        receive(sender,resumed,48000,128,juce::Decibels::decibelsToGain(-6.0f));
+        resumed.stop();
+        resumed.setStateInformation(saved.getData(),static_cast<int>(saved.getSize()));
+        receive(sender,resumed,48000,128,juce::Decibels::decibelsToGain(-6.0f));
+        resumed.stop();processor.stop();
         sender.disconnect();
         monitoring(relay);
         invitationActions(relay);

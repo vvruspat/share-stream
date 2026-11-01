@@ -1,0 +1,22 @@
+{
+  "name": "@share-stream/desktop",
+  "version": "0.6.0",
+  "private": true,
+  "main": "build/desktop/src/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run build && electron .",
+    "test": "npm run build && node --test build/desktop/tests/*.test.js",
+    "package": "npm run build && node scripts/package.cjs"
+  },
+  "devDependencies": {
+    "@electron/osx-sign": "2.7.2",
+    "@electron/packager": "20.3.0",
+    "@types/node": "24.19.2",
+    "electron": "45.2.1",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": "^24.11.0 || >=26.0.0"
+  }
+}

@@ -7,7 +7,7 @@ namespace sharestream {
 class RoomDirectory final : private juce::Thread {
 public:
     struct State {
-        juce::var accounts, rooms, user, selected;
+        juce::var accounts, rooms, user, selected, invitations, sharedRoom;
         juce::String error, notice;
         juce::String browserTicket, browserCode, browserAccount;
         double browserExpiresAt=0;
@@ -25,14 +25,14 @@ public:
     bool requestBrowserHandoff(const juce::String& code, const juce::String& host, int port);
     void cancelBrowserHandoff();
 private:
-    struct Task { juce::String path, method; juce::var body; int accountIndex=-1; uint64_t browserGeneration=0; };
+    struct Task { juce::String path, method; juce::var body; int accountIndex=-1; uint64_t browserGeneration=0; juce::String account; };
     void run() override;
     juce::var perform(const Task&, const juce::String& token);
-    void save();
+    void reloadAccounts();
     mutable std::mutex mutex;
     State current;
     juce::var accounts {juce::Array<juce::var>()};
-    juce::String active, token, removedAccount;
+    juce::String active, token, storeSnapshot;
     std::deque<Task> tasks;
     uint64_t browserGeneration=0;
 };

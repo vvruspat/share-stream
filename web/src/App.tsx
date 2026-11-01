@@ -48,7 +48,7 @@ export function App() {
   );
 }
 
-function Session({
+export function Session({
   invite,
   token,
   name: accountName,
@@ -116,7 +116,8 @@ function Session({
   useEffect(() => {
     // Keep the private browser/plugin binding in local browser storage,
     // never in a shareable invitation or an HTTP request URL.
-    if (invite) history.replaceState(null, "", invitationLink(invite, location.origin, false));
+    if (invite && !window.shareStreamDesktop)
+      history.replaceState(null, "", invitationLink(invite, location.origin, false));
   }, [invite]);
   const devices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -183,6 +184,70 @@ function Session({
       ? "Use headphones. Echo cancellation and automatic microphone processing are off for mixing."
       : "For speakers: echo cancellation is on. macOS voice processing may lower other apps’ audio.";
   const own = roster.participants.find((p) => p.id === roster.id);
+  useEffect(() => {
+    window.shareStreamDesktop?.publish("settings", {
+      volumeDb,
+      peaks: voicePeaks,
+      voiceMode: state.voiceMode,
+      input,
+      output,
+      name,
+      micBusy: state.micBusy,
+      micOpen: !!call.micStream,
+      inputs,
+      outputs,
+      outputSupported,
+    });
+  }, [
+    volumeDb,
+    voicePeaks,
+    state.voiceMode,
+    state.micBusy,
+    input,
+    output,
+    name,
+    inputs,
+    outputs,
+    call,
+  ]);
+  useEffect(() => {
+    window.shareStreamDesktop?.publish("participants", {
+      people: roster.participants,
+      self: roster.id,
+    });
+  }, [roster.participants, roster.id]);
+  useEffect(
+    () =>
+      window.shareStreamDesktop?.onCommand((command, value) => {
+        if (command === "join" && invite && !call.active) {
+          void run(() => call.join(invite.code));
+          return;
+        }
+        if (command === "volumeDb" && typeof value === "number" && Number.isFinite(value))
+          setVolumeDb(Math.min(6, Math.max(-60, value)));
+        else if (command === "voiceMode" && (value === "headphones" || value === "speakers"))
+          void run(() => call.setVoiceMode(value, input));
+        else if (
+          command === "input" &&
+          typeof value === "string" &&
+          inputs.some((device) => device.value === value)
+        ) {
+          setInput(value);
+          if (call.micStream) void run(() => call.microphone(value));
+        } else if (
+          command === "output" &&
+          typeof value === "string" &&
+          outputs.some((device) => device.value === value)
+        )
+          setOutput(value);
+        else if (command === "name" && typeof value === "string") {
+          setName(value.slice(0, 60));
+          saveDisplayName(value.slice(0, 60));
+          roster.rename(value.slice(0, 60));
+        }
+      }),
+    [call, invite, input, inputs, outputs, roster.rename, run],
+  );
 
   const participants = (
     <section id="participants" aria-label="Participants">
@@ -381,7 +446,11 @@ function Session({
               aria-label="Audio settings"
               aria-expanded={audioOpen}
               aria-controls="audio-panel"
-              onClick={() => setAudioOpen(!audioOpen)}
+              onClick={() =>
+                window.shareStreamDesktop
+                  ? void window.shareStreamDesktop.openWindow("settings")
+                  : setAudioOpen(!audioOpen)
+              }
             >
               <SpeakerWaveIcon />
               <span className="control-label">Audio</span>

@@ -1,5 +1,120 @@
 @import "./components/ui/tokens.css";
 @import "./components/ui/primitives.css";
+
+.desktop-main {
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+.desktop-main > main {
+  max-width: 1440px;
+  margin: 0 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.desktop-main .stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.desktop-main .screen-area {
+  flex: 1;
+  min-height: 0;
+  aspect-ratio: auto;
+}
+.desktop-main .stream-toolbar,
+.desktop-main .page-header,
+.desktop-main .music-context,
+.desktop-main footer {
+  flex-shrink: 0;
+}
+.desktop-main .page-header,
+.desktop-main .room-header-actions {
+  flex-wrap: wrap;
+}
+.desktop-main .placeholder {
+  min-height: 0;
+  overflow: auto;
+}
+.desktop-main .screen-participants {
+  max-height: 24vh;
+  overflow: auto;
+}
+.desktop-panel {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px;
+}
+.desktop-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.desktop-panel h1 {
+  font-size: 26px;
+}
+.desktop-panel form {
+  display: grid;
+  gap: 18px;
+  margin: 24px 0;
+}
+.desktop-panel > .field,
+.desktop-panel > .select-field {
+  margin-top: 22px;
+}
+.desktop-panel > .monitor-field {
+  margin: 24px 0 32px;
+}
+.desktop-list-item {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+}
+.desktop-list-item span {
+  overflow-wrap: anywhere;
+}
+.desktop-list-item small {
+  color: var(--muted);
+  display: block;
+}
+.desktop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
+.desktop-code {
+  display: block;
+  padding: 20px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.desktop-invitation {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.desktop-welcome {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  align-content: center;
+  gap: 22px;
+  min-height: 60vh;
+}
+.desktop-welcome > svg {
+  width: 48px;
+  height: 48px;
+  color: var(--mint);
+}
 * {
   box-sizing: border-box;
 }
