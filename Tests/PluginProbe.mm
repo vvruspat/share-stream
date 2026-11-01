@@ -3,6 +3,7 @@
 #include <cmath>
 #include <chrono>
 #include "StreamEngine.h"
+#include "ProbeEnvironment.h"
 #import <Cocoa/Cocoa.h>
 
 static bool verify(juce::AudioPluginInstance& plugin,int blockSize,double rate,bool listen) {
@@ -104,6 +105,7 @@ static bool network(juce::AudioPluginInstance& plugin,int port) {
 }
 static int run(int argc,char** argv) {
     if(argc!=2 && argc!=4) {std::cerr<<"Usage: plugin_probe /absolute/path/Share Stream.vst3\n";return 2;}
+    if(!isolateProbeFromSavedSessions()){std::cerr<<"Could not isolate plug-in probe preferences\n";return 1;}
     juce::ScopedJuceInitialiser_GUI gui;
     std::unique_ptr<juce::AudioPluginFormat> format;
     if(juce::String(argv[1]).endsWithIgnoreCase(".component"))format=std::make_unique<juce::AudioUnitPluginFormat>();

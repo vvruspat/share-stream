@@ -129,7 +129,7 @@ target_compile_definitions(processor_tests PRIVATE SHARE_STREAM_RELAY_SOURCE="${
 target_compile_definitions(processor_tests PRIVATE SHARE_STREAM_MONITOR_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/Tests/MonitorGains.json")
 if(SHARE_STREAM_BUILD_PRODUCTS)
   add_dependencies(processor_tests plugin_probe ShareStream_VST3)
-  add_test(NAME plugin_factory COMMAND plugin_probe "${CMAKE_CURRENT_BINARY_DIR}/ShareStream_artefacts/Release/VST3/Share Stream.vst3")
+  add_test(NAME plugin_factory COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Tests/run_plugin_probe.py" "$<TARGET_FILE:plugin_probe>" "${CMAKE_CURRENT_BINARY_DIR}/ShareStream_artefacts/Release/VST3/Share Stream.vst3")
 endif()
 if(APPLE AND SHARE_STREAM_BUILD_PRODUCTS)
   add_test(NAME processor_receive COMMAND processor_tests "$<TARGET_FILE:plugin_probe>" "${CMAKE_CURRENT_BINARY_DIR}/ShareStream_artefacts/Release/VST3/Share Stream.vst3")

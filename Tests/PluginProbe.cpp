@@ -1,8 +1,10 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <iostream>
 #include <cmath>
+#include "ProbeEnvironment.h"
 int main(int argc,char** argv) {
     if(argc!=2)return 2;
+    if(!isolateProbeFromSavedSessions()){std::cerr<<"Could not isolate plug-in probe preferences\n";return 1;}
     juce::ScopedJuceInitialiser_GUI gui;
     juce::VST3PluginFormat format;
     juce::OwnedArray<juce::PluginDescription> descriptions;
