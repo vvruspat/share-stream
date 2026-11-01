@@ -101,6 +101,22 @@ test("a native launch restores the same participant without exposing extra store
     assert.equal(directory.model.launch?.participant, room.participant);
     assert.equal(JSON.stringify(directory.model).includes("do-not-expose"), false);
     assert.equal(launches, 1);
+    const newerRoom = { ...room, code: "3".repeat(32), roomName: "Newer room" };
+    await writeFile(
+      file,
+      JSON.stringify({
+        accounts: [],
+        room: newerRoom,
+        launch: { ...room, id: "old-native-command" },
+      }),
+    );
+    const reopened = new DesktopDirectory("https://server.invalid", file, async () => undefined);
+    await reopened.poll();
+    assert.equal(
+      reopened.model.launch?.code,
+      newerRoom.code,
+      "an old native launch must not replace a subsequently selected room after restart",
+    );
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

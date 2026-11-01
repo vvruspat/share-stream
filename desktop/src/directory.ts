@@ -155,6 +155,10 @@ export class DesktopDirectory extends EventEmitter {
       if (
         state.launch?.id &&
         state.launch.id !== this.lastLaunch &&
+        (!state.room ||
+          (state.launch.code === state.room.code &&
+            state.launch.host === state.room.host &&
+            state.launch.port === state.room.port)) &&
         (!state.launch.accountId || state.launch.accountId === this.model.active)
       ) {
         this.lastLaunch = state.launch.id;
