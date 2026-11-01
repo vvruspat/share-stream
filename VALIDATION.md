@@ -16,6 +16,10 @@
 - Web lint/typecheck, 34 server/unit tests, 18 browser scenarios and three desktop
   unit tests pass. The desktop integration suite passes with both Vite's development
   renderer and bundled assets. No production renderer/app artifacts are built on PRs.
+- The two-app CI fixture uses local ICE candidates, enables loopback and disables
+  mDNS obfuscation only in the test Electron processes. It does not depend on
+  public STUN or multicast routing on the hosted VM. Real RTP bytes and decoded
+  screen frames are still required; failure logs include bounded ICE states.
 - Two isolated Electron apps register with a three-character password, require
   invitation acceptance, transmit synthetic voice/screen over actual WebRTC,
   synchronize room names, stay disconnected after Leave, rejoin on a native launch

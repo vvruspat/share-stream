@@ -11,6 +11,13 @@ const expect = require("../../web/node_modules/@playwright/test").expect.configu
   timeout: 15000,
 });
 const root = resolve(__dirname, "../..");
+// Both peers live in this test machine. Avoid depending on multicast DNS, LAN
+// interfaces or the public STUN service of a production deployment on CI VMs.
+const electronArgs = [
+  "--allow-loopback-in-peer-connection",
+  "--disable-features=WebRtcHideLocalIpsWithMdns",
+  join(root, "desktop"),
+];
 const nativeBuild = process.env.SHARE_STREAM_TEST_BUILD_DIR || "build";
 const helper = join(root, nativeBuild, "session_helper");
 function probe(args, env, body) {
@@ -65,7 +72,7 @@ test(
       application = await _electron.launch({
         executablePath:
           process.env.SHARE_STREAM_CHAT_EXECUTABLE || require("../node_modules/electron"),
-        args: [join(root, "desktop")],
+        args: electronArgs,
         env,
       });
       const main = await application.firstWindow();
@@ -164,12 +171,16 @@ test(
 async function synthetic(main) {
   await main.addInitScript(() => {
     window.testPCs = [];
+    window.testIceErrors = [];
     window.mediaRequests = { audio: 0, display: 0 };
     const Peer = RTCPeerConnection;
     window.RTCPeerConnection = class extends Peer {
       constructor(config) {
-        super(config);
+        super({ ...config, iceServers: [] });
         window.testPCs.push(this);
+        this.addEventListener("icecandidateerror", (event) =>
+          window.testIceErrors.push({ code: event.errorCode, text: event.errorText }),
+        );
       }
     };
     navigator.mediaDevices.getUserMedia = async () => {
@@ -241,7 +252,7 @@ test(
       const application = await _electron.launch({
         executablePath:
           process.env.SHARE_STREAM_CHAT_EXECUTABLE || require("../node_modules/electron"),
-        args: [join(root, "desktop")],
+        args: electronArgs,
         env,
       });
       applications.push(application);
@@ -341,7 +352,7 @@ test(
       assert.deepEqual(errors, []);
     } catch (error) {
       for (const app of applications)
-        for (const page of app.windows())
+        for (const page of app.windows()) {
           console.error(
             "Window:",
             page.url(),
@@ -350,6 +361,43 @@ test(
               .innerText()
               .catch(() => ""),
           );
+          console.error(
+            "ICE diagnostics:",
+            await page
+              .evaluate(async () => ({
+                errors: window.testIceErrors || [],
+                peers: await Promise.all(
+                  (window.testPCs || []).map(async (pc) => ({
+                    connection: pc.connectionState,
+                    ice: pc.iceConnectionState,
+                    gathering: pc.iceGatheringState,
+                    signaling: pc.signalingState,
+                    candidates: [...(await pc.getStats()).values()]
+                      .filter((s) =>
+                        ["candidate-pair", "local-candidate", "remote-candidate"].includes(s.type),
+                      )
+                      .map((s) => ({
+                        type: s.type,
+                        state: s.state,
+                        kind: s.candidateType,
+                        protocol: s.protocol,
+                        nominated: s.nominated,
+                        scope: s.address
+                          ? ["127.0.0.1", "::1"].includes(s.address)
+                            ? "loopback"
+                            : s.address.endsWith(".local")
+                              ? "mdns"
+                              : "interface"
+                          : undefined,
+                        bytesSent: s.bytesSent,
+                        bytesReceived: s.bytesReceived,
+                      })),
+                  })),
+                ),
+              }))
+              .catch(() => "unavailable"),
+          );
+        }
       throw error;
     } finally {
       for (const app of applications) await app.close();
