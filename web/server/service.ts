@@ -121,7 +121,8 @@ export function createService({
     if (
       req.url?.startsWith("/api/accounts/") ||
       req.url?.startsWith("/api/browser/") ||
-      req.url?.startsWith("/api/rooms")
+      req.url?.startsWith("/api/rooms") ||
+      req.url?.startsWith("/api/invitations")
     ) {
       const reply = (status: number, body: unknown, cookie?: string) =>
         res
@@ -237,20 +238,34 @@ export function createService({
         const user = token ? directory.user(token) : directory.browserUser(browserToken, accountId);
         let selected: string | undefined;
         if (req.url === "/api/accounts/logout" && req.method === "POST") directory.logout(token);
-        else if (req.url === "/api/rooms" && req.method === "GET") {
+        else if (
+          (req.url === "/api/rooms" || req.url === "/api/invitations") &&
+          req.method === "GET"
+        ) {
           /* List below. */
         } else if (
           (req.url === "/api/rooms" || req.url === "/api/rooms/accept") &&
           req.method === "POST"
         )
           selected = directory.save(user, body, req.url === "/api/rooms");
-        else {
+        else if (
+          /^\/api\/invitations\/[a-f0-9]{32}\/(accept|decline)$/.test(req.url) &&
+          req.method === "POST"
+        ) {
+          const [, , , id, action] = req.url.split("/");
+          selected = directory.respondToInvitation(user, id, action === "accept");
+        } else {
           const match = /^\/api\/rooms\/([a-f0-9]{64})(\/invitations)?$/.exec(req.url);
           if (!match || (match[2] ? req.method !== "POST" : req.method !== "PATCH"))
             throw new DirectoryError("Not found.", 404);
           directory.manage(user, match[1], body, !!match[2]);
         }
-        reply(200, { user, rooms: directory.rooms(user), selected });
+        reply(200, {
+          user,
+          rooms: directory.rooms(user),
+          invitations: directory.invitations(user),
+          selected,
+        });
       } catch (error) {
         reply(
           error instanceof DirectoryError ? error.status : error instanceof SyntaxError ? 400 : 500,
@@ -349,7 +364,7 @@ export function createService({
   server.on("upgrade", (req, socket, head) => {
     if (
       req.url !== "/signal" ||
-      !(typeof origin === "string" ? [origin] : origin).includes(req.headers.origin || "") ||
+      ![...allowedOrigins, "sharestream-desktop://app"].includes(req.headers.origin || "") ||
       wss.clients.size >= 512
     ) {
       socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");

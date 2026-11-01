@@ -25,7 +25,18 @@ test("accounts, encrypted room secrets, names and membership survive a service r
       true,
     );
     directory.manage(owner.user, id, { username: "GUEST" }, true);
+    assert.equal(directory.rooms(guest.user).length, 0);
+    const invitation = directory.invitations(guest.user)[0];
+    assert.equal(invitation.room.name, "Mixing room");
+    assert.equal(JSON.stringify(invitation).includes(code), false);
+    assert.throws(
+      () => directory.respondToInvitation(outsider.user, invitation.id, true),
+      /no longer/,
+    );
     directory.manage(owner.user, id, { name: "Album sessions" }, false);
+    assert.equal(directory.invitations(guest.user)[0].room.name, "Album sessions");
+    directory.respondToInvitation(guest.user, invitation.id, true);
+    assert.equal(directory.invitations(guest.user).length, 0);
     const first = directory.rooms(guest.user)[0];
     assert.equal(first.name, "Album sessions");
     assert.equal(first.code, code);
@@ -38,7 +49,10 @@ test("accounts, encrypted room secrets, names and membership survive a service r
       () => directory.manage(outsider.user, id, { username: "outsider" }, true),
       /creator/,
     );
-    directory.manage(owner.user, id, { username: "guest" }, true);
+    assert.throws(
+      () => directory.manage(owner.user, id, { username: "guest" }, true),
+      /already joined/,
+    );
     directory.save(guest.user, { code }, false);
     assert.equal(directory.rooms(guest.user)[0].participant, first.participant);
     directory.close();
@@ -68,8 +82,8 @@ test("credentials are validated and failed login does not create an account", as
   try {
     await assert.rejects(directory.authenticate({ username: "a", password }, true), /3–32/);
     await assert.rejects(
-      directory.authenticate({ username: "alice", password: "short" }, true),
-      /10–128/,
+      directory.authenticate({ username: "alice", password: "ab" }, true),
+      /3–128/,
     );
     await assert.rejects(
       directory.authenticate({ username: "alice", password }, false),
@@ -144,7 +158,20 @@ test("HTTP directory requires a session, rejects foreign origins and shares invi
     { username: "bob" },
     alice.token,
   );
-  const joined = (await (await request("/api/rooms", "GET", undefined, bob.token)).json()) as {
+  const pending = (await (await request("/api/rooms", "GET", undefined, bob.token)).json()) as {
+    rooms: SavedRoom[];
+    invitations: { id: string }[];
+  };
+  assert.equal(pending.rooms.length, 0);
+  assert.equal(pending.invitations.length, 1);
+  assert.equal(
+    (await request(`/api/invitations/${pending.invitations[0].id}/accept`, "POST", {}, alice.token))
+      .status,
+    404,
+  );
+  const joined = (await (
+    await request(`/api/invitations/${pending.invitations[0].id}/accept`, "POST", {}, bob.token)
+  ).json()) as {
     rooms: SavedRoom[];
   };
   assert.equal(joined.rooms[0].code, code);
@@ -153,4 +180,39 @@ test("HTTP directory requires a session, rejects foreign origins and shares invi
   await request("/api/accounts/logout", "POST", {}, bob.token);
   assert.equal((await request("/api/rooms", "GET", undefined, bob.token)).status, 401);
   assert.equal((await request("/directory.sqlite")).status, 404);
+});
+
+test("three-character passwords accept spaces and Unicode; declined invitations survive restart without membership", async () => {
+  const path = await mkdtemp(join(tmpdir(), "share-stream-pending-"));
+  onTestFinished(() => rm(path, { recursive: true, force: true }));
+  let directory = new Directory(path);
+  try {
+    const owner = await directory.authenticate({ username: "short_owner", password: "123" }, true);
+    const guest = await directory.authenticate({ username: "short_guest", password: "   " }, true);
+    const unicode = await directory.authenticate(
+      { username: "unicode_guest", password: "🎹声🙂" },
+      true,
+    );
+    assert.equal(
+      (await directory.authenticate({ username: "unicode_guest", password: "🎹声🙂" }, false)).user
+        .id,
+      unicode.user.id,
+    );
+    const id = directory.save(owner.user, { code, name: "Pending mix" }, true);
+    directory.manage(owner.user, id, { username: guest.user.username }, true);
+    const invitation = directory.invitations(guest.user)[0];
+    directory.close();
+    directory = new Directory(path);
+    assert.equal(directory.invitations(guest.user)[0].id, invitation.id);
+    assert.equal(directory.rooms(guest.user).length, 0);
+    directory.respondToInvitation(guest.user, invitation.id, false);
+    assert.equal(directory.rooms(guest.user).length, 0);
+    assert.equal(directory.invitations(guest.user).length, 0);
+    assert.throws(
+      () => directory.respondToInvitation(guest.user, invitation.id, true),
+      /no longer/,
+    );
+  } finally {
+    directory.close();
+  }
 });

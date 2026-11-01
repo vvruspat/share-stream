@@ -1,10 +1,10 @@
 # Native installation and updates
 
-All installers include the standalone receiver and VST3. The macOS installer also includes AU. The standalone remains an output-only listener and does not request microphone permission.
+All installers include the standalone receiver and VST3. The macOS installer also includes AU and Share Stream Chat (macOS 13+). The standalone remains an output-only listener and does not request microphone permission.
 
 | Platform | Installer | Destinations |
 | --- | --- | --- |
-| macOS 12+ universal | `ShareStream-Setup-macOS.zip` → `Share Stream Setup.app` | `~/Applications/Share Stream.app`, `~/Library/Audio/Plug-Ins/{VST3,Components}` |
+| macOS 12+ universal | `ShareStream-Setup-macOS.zip` → `Share Stream Setup.app` | `~/Applications/Share Stream.app`, `~/Applications/Share Stream Chat.app`, `~/Library/Audio/Plug-Ins/{VST3,Components}` |
 | Windows 10/11 x64 | `ShareStream-Setup-Windows-x64.exe` | `%LOCALAPPDATA%\Programs\Share Stream`, `%LOCALAPPDATA%\Programs\Common\VST3` |
 | Ubuntu 24.04+ x86_64 | `ShareStream-Ubuntu-amd64.deb` | `/opt/share-stream`, `/usr/lib/vst3`, system desktop launcher |
 | Fedora 44+ x86_64 | `ShareStream-Fedora-x86_64.rpm` | `/opt/share-stream`, `/usr/lib/vst3`, system desktop launcher |
@@ -17,7 +17,7 @@ Windows hosts that do not scan per-user VST3 locations need that path added in t
 
 When a newer version is available, choose **Download and install update**. The download, progress, checksum validation and installer launch happen inside Share Stream. You can check manually or disable daily checks in the same menu. Checks and downloads run on a low-priority background thread, independently from the audio callback. Multiple plug-in windows share one updater, with an interprocess lock for downloads/checks.
 
-Save your work before installing. When an update is started from the macOS/Windows standalone, it exits and Setup reopens the new version after success. Restart the DAW after a plug-in update; Linux receivers need a restart after the package transaction. macOS stages every bundle and verifies the owner’s signature before replacing any destination. Replacement uses new files and renames, so loaded binaries stay intact; it never kills an application. Previous bundles are retained under `~/Library/Application Support/Share Stream/Previous installs/`. A failed replacement restores the previous set. Windows Setup never closes the DAW automatically; close the DAW/receiver if files are in use, then retry. Linux updates launch apt/dnf through Polkit: approve the system authentication dialog. The package manager resolves dependencies and retains ownership of system files. A cancelled or failed package transaction is reported in the update button.
+Save your work before installing. When an update is started from the macOS/Windows standalone, it exits and Setup reopens the new version after success. Restart Chat and the DAW after an update; Linux receivers need a restart after the package transaction. macOS stages every bundle and verifies the owner’s signature before replacing any destination. Replacement uses new files and renames, so loaded binaries stay intact; it never kills an application. Previous bundles are retained under `~/Library/Application Support/Share Stream/Previous installs/`. A failed replacement restores the previous set. Windows Setup never closes the DAW automatically; close the DAW/receiver if files are in use, then retry. Linux updates launch apt/dnf through Polkit: approve the system authentication dialog. The package manager resolves dependencies and retains ownership of system files. A cancelled or failed package transaction is reported in the update button.
 
 ## Trust and failure handling
 
@@ -29,7 +29,7 @@ GitHub Releases and the repository’s release permissions are the update trust 
 
 ## Uninstall or rollback
 
-- macOS: quit the receiver/DAW and remove the three destinations listed above. For rollback, restore all three bundles from one `Previous installs` directory. Settings are separate and preserved.
+- macOS: quit the receiver/DAW and remove the four bundles listed above. For rollback, restore all four bundles from one `Previous installs` directory. Settings are separate and preserved.
 - Windows: **Settings → Apps → Share Stream → Uninstall**, or the Start menu uninstaller.
 - Ubuntu: `sudo apt remove share-stream`.
 - Fedora: `sudo dnf remove share-stream`.

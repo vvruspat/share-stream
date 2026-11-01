@@ -33,7 +33,7 @@ credentials need to change.
 
 ## Create a release
 
-1. Update the version in `CMakeLists.txt`, `web/package.json`, the root and `packages[""]` entries of `web/package-lock.json`, `web/shared/protocol.ts`, and `web/compose.yaml`.
+1. Update the version in `CMakeLists.txt`, `web/package.json`, the root and `packages[""]` entries of `web/package-lock.json`, `web/shared/protocol.ts`, `web/compose.yaml`, `desktop/package.json` and both version entries in `desktop/package-lock.json`.
 2. Update `docs/release-notes.md`. Merge the tested pull request into `main`.
 3. Tag that commit and push the tag:
 
@@ -44,7 +44,7 @@ credentials need to change.
 
 The **Release** workflow validates the tag against all versions and `origin/main`, tests web/browser/relay behavior, builds the backend and the selected native platforms, and smoke-tests selected Windows/Linux installers. macOS bundles and Setup are signed and notarized using the owner's existing Developer ID Application identity. Windows Setup is currently unsigned. Linux packages retain apt/rpm ownership and resolve native runtime dependencies.
 
-The macOS job first notarizes/staples the three bundles, then seals them in Setup's signed resources and notarizes/staples Setup separately. After all selected platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all selected downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
+The macOS job first notarizes/staples the four bundles (VST3, AU, receiver and Chat), then seals them in Setup's signed resources and notarizes/staples Setup separately. After all selected platforms succeed, the backend deploys through Coolify. Publication uploads a draft with all selected downloads, `SHA256SUMS.txt` and `NOTARIZATION.json`, verifies GitHub's asset digests and marks the complete release public/latest. [Native update trust and installation behavior](updates.md).
 
 ### Applications first, backend later
 

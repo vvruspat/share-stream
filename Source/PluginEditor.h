@@ -24,6 +24,9 @@ private:
         std::function<void(juce::Graphics&)> draw;
         void paint(juce::Graphics& g) override { if(draw)draw(g); }
     } content;
+    Content settingsContent;
+    std::unique_ptr<juce::DocumentWindow> settingsWindow;
+    void showSettings();
     void paintContent(juce::Graphics&);
     void timerCallback() override;
     void saveConfiguration();
@@ -50,6 +53,7 @@ private:
     juce::TextButton audioSettings {"Audio output..."}, settings {"Audio & connection settings"};
     juce::TextButton collaboration {"Voice & screen"}, update {"Updates"};
     juce::TextButton accountMenu {"Sign in"}, roomMenu {"..."}, roomPicker {"Choose a room"}, invite {"Invite"}, participants {"Participants"};
+    juce::TextButton notifications {"Invitations"};
     juce::SharedResourcePointer<sharestream::Updater> updater;
     juce::TextEditor server, port, room;
     juce::ComboBox buffer, quality;

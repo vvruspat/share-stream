@@ -77,6 +77,7 @@ export function useParticipants(
     const update = async () => {
       try {
         room ||= (await roomKeys(code)).room;
+        if (disposed) return;
         const name = pendingName.current;
         const payload: PresenceUpdate = {
           room,
@@ -86,14 +87,18 @@ export function useParticipants(
           ...latest.current,
           ...(name !== undefined ? { name } : {}),
         };
-        const response = await fetch("/api/presence", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.any([abort.signal, AbortSignal.timeout(4000)]),
-        });
-        if (!response.ok) throw new Error("Presence unavailable");
-        const data = (await response.json()) as { participants: Participant[] };
+        const response = window.shareStreamDesktop
+          ? null
+          : await fetch("/api/presence", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+              signal: AbortSignal.any([abort.signal, AbortSignal.timeout(4000)]),
+            });
+        if (response && !response.ok) throw new Error("Presence unavailable");
+        const data = window.shareStreamDesktop
+          ? { participants: await window.shareStreamDesktop.updatePresence(payload) }
+          : ((await response!.json()) as { participants: Participant[] });
         if (!disposed) {
           setParticipants(data.participants);
           setUnavailable(false);
@@ -110,6 +115,10 @@ export function useParticipants(
     };
     void update();
     const leave = () => {
+      if (room && window.shareStreamDesktop) {
+        window.shareStreamDesktop.leavePresence(room, token);
+        return;
+      }
       if (room)
         navigator.sendBeacon(
           "/api/presence",

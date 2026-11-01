@@ -1,27 +1,12 @@
-Share Stream 0.5.0 adds persistent rooms, group sessions and a simpler interface across the plugin, receiver and browser.
+Share Stream 0.6.0 introduces a dedicated macOS Chat app and a shared session across the plugin, receiver and chat.
 
-**The 0.5.0 rollout is complete.** The native applications and production server
-are now on 0.5.0, with persistent room storage enabled. Refresh existing browser
-tabs to load the new interface.
+- **Voice & screen** launches **Share Stream Chat.app** directly in the current room. The existing React interface and WebRTC media run inside a bundled Electron app.
+- Sign in once in VST3, AU, receiver or Chat. Running clients adopt the same active account without another password or invitation. Passwords accept any 3+ characters.
+- Restarting the plugin/DAW/receiver restores the selected room, Send/Listen role and music connection. Explicit Disconnect remains off. Microphone and screen always require a click.
+- Account, room management, invitations, participants and settings open separate windows. Renaming a room synchronizes its name for everyone.
+- Copy a room code or send an invitation to a username. Pending invitations appear in the app, including after being offline, and require **Accept and join** or **Decline**. Running Chat can show a system notification.
+- The combined Setup installs **VST3 + AU + receiver + Chat** and updates them together. Owner Developer ID signing and Apple notarization cover Chat and its embedded helper too.
 
-- Create an account with a username and password, keep multiple accounts signed in, and switch from the profile menu. Named rooms remain in your list after everyone leaves and after a server restart. Room creators can rename rooms and invite registered users; invitation links still work for guests.
-- Connect up to eight people: one sends music and up to seven listen. Each listener uses its own direct P2P connection with targeted relay fallback. Everyone can speak and share a screen; when several screens are shared, choose which one to watch.
-- Use a compact native room picker and account menu, or the browser room sidebar. Creation, invitation, rename and sign-in fields open in focused dialogs. Microphone, screen, audio and leave controls stay easy to reach on desktop and mobile.
-- **Voice & screen** opens the browser in the app's selected account and room without another password prompt. First-time linking or changing accounts asks **Continue as @username**. The browser uses a separate HttpOnly session; the launch link contains only a single-use ticket valid for one minute. Each tab keeps its own selected account.
-- Copying an invitation, importing or selecting a room never starts music. Start sending or connect to music explicitly. Microphone and screen capture always start off. Joining a saved room from the browser list also requires an explicit join.
-- Reopening your browser chat replaces your previous connection without taking another person's slot. Guest native links preserve their participant identity even if the browser already has a saved account. Account changes stop that tab's captures, and names remain intact after leaving and rejoining.
+**Chat requires macOS 13+**, Intel or Apple Silicon. Native music retains macOS 12 support. This release builds macOS only while Windows/Linux builds remain paused. Existing browser invitations and the browser client remain compatible.
 
-Existing monitor controls, invitation compatibility, live quality changes and device selection are retained. Update the plugin/receiver and refresh browser tabs before using group sessions; older native versions retain pair behavior.
-
-Saved room codes are encrypted on disk but can be read by the directory server. Invitation links remain valid; room deletion, member removal, invitation revocation and password recovery are not available in this release. Group upload bandwidth and CPU use increase with participant count.
-
-| Platform | Combined installer |
-| --- | --- |
-| macOS 12+, Apple Silicon + Intel | **ShareStream-Setup-macOS.zip** — open **Share Stream Setup.app** |
-| Windows 10/11 x64 | **ShareStream-Setup-Windows-x64.exe** |
-| Ubuntu 24.04+ x86_64 | **ShareStream-Ubuntu-amd64.deb** |
-| Fedora 44+ x86_64 | **ShareStream-Fedora-x86_64.rpm** |
-
-Each installer includes the receiver and VST3; macOS also includes AU. macOS binaries and Setup use the owner’s Apple Developer ID signature and Apple notarization. Windows Setup is currently unsigned. The original macOS ZIP downloads remain available.
-
-Use the built-in updater or download the installer. Save your session before installing and restart the standalone/DAW afterwards. Refresh or reopen the browser chat to load its updated controls. Checksums are in `SHA256SUMS.txt`; Apple’s report is in `NOTARIZATION.json`.
+Use the built-in plugin/receiver updater or download **ShareStream-Setup-macOS.zip**. Save the DAW session before installing, then restart the DAW, receiver and Chat. The backend updates through the existing Coolify release job; pending invitations require the updated server. No manual database migration or new credentials are needed.

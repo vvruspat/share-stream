@@ -7,6 +7,7 @@ Use the root repository for all components; invitation fixtures in `Tests/Invita
 | `Source/` | JUCE plugin, standalone receiver and streaming protocol |
 | `server/` | Python UDP introduction/relay service |
 | `web/src/` | React + TypeScript browser client, Radix UI and Heroicons |
+| `desktop/` | Electron main/preload, shared native session bridge and separate app windows |
 | `web/server/` | TypeScript signaling and TURN credentials |
 | `web/shared/` | Browser/server protocol types and limits |
 | `Tests/`, `web/tests/` | Native, relay and browser tests |
@@ -43,7 +44,7 @@ the owner's Developer ID; see the root README and [release guide](docs/releases.
 ## CI stages
 
 Pull requests run lint, formatting/type checks, Python tests, native test binaries
-on macOS/Windows/Ubuntu/Fedora, and web unit/browser tests. Browser tests use the
+on macOS (other platforms are currently paused), desktop tests, and web unit/browser tests. Browser tests use the
 Vite development server (`TEST_WEB_DEV=1`); unit tests use isolated static-file
 fixtures. They require no production web bundle. PRs do not build/upload plugins,
 apps, installers, packages or Docker images, and never sign, deploy or publish.
@@ -60,7 +61,7 @@ bash scripts/web.sh test
 TEST_WEB_DEV=1 bash scripts/web.sh run test:e2e
 ```
 
-Keep music transport separate from browser screen and voice. Do not start connections or capture merely because the DAW restores a project. Preserve compatibility with existing invitation links and test cross-language protocol changes against the shared fixtures.
+Keep music transport separate from screen and voice. Restore the last music connection and Send/Listen role on launch; explicit Disconnect stays off. Never restore microphone or screen capture automatically. Preserve compatibility with existing invitation links and test cross-language protocol changes against the shared fixtures.
 
 `AudioCodec` links the pinned libopus source statically. Encoding/decoding and encryption
 run on the network worker, never in the audio callback. The encoded packet metadata
@@ -80,3 +81,26 @@ For Ubuntu 24.04 or Fedora 44, install the dependencies listed in `.github/workf
 Updater tests cover stable-version selection, repository/tag/asset trust, missing hashes, archive traversal, staging failures, whole-install rollback and retained backups. On macOS, `build/update_tests /absolute/path/to/payload.zip` additionally verifies installation of the actual owner-signed bundles into a temporary directory, including executable permissions. It does not change the user’s installed applications.
 
 After publishing, build `update_probe` explicitly and run it to exercise the production updater against the actual public GitHub Release. It models an older installed version, downloads the platform installer and validates its hash/signature, but never launches the installer or changes installed applications. This network acceptance probe is excluded from the default build and deterministic test suites.
+
+## Desktop Chat (macOS 13+)
+
+```sh
+bash scripts/web.sh ci
+bash scripts/web.sh run build
+cmake --build build --target session_helper
+bash scripts/chat.sh ci
+bash scripts/chat.sh start
+```
+
+The privileged Electron process reads the same owner-only account file as JUCE.
+All writes go through `session_helper` and the shared native interprocess lock.
+Renderer JavaScript receives public users/rooms and participant bindings, never
+account bearer tokens. Native commands are consumed by a single Chat instance.
+The renderer is bundled locally with a secure custom scheme, sandboxed preload
+and narrow IPC. Auxiliary windows never own microphone/screen streams.
+
+Run `bash scripts/ci/test-desktop.sh` after `test-native.sh` for the PR integration
+tests. They transpile the server fixture and use the Vite development renderer;
+no installer or production client bundle is produced. Tests use isolated profiles,
+accounts and synthetic media; they do not touch installed apps or real devices.
+After merging, `build-native.sh` packages universal Chat alongside the JUCE bundles.

@@ -1,5 +1,34 @@
 # Share Stream — validation
 
+## 0.6.0 desktop session UX (local, 2026-11-01)
+
+- Nine native CTests pass: encrypted transport/codecs/group peers, loaded VST3,
+  real stereo Listen, persistent room/role/music intent and gains, separate native
+  Settings window, updater transactions and safe Electron framework extraction.
+- The real session helper survives concurrent native writers without losing or
+  resurrecting accounts. Files are 0600 in a 0700 directory; corrupt stores are
+  reported without being overwritten. DAW XML and renderer models contain no
+  account bearer tokens.
+- Web lint/typecheck, 34 server/unit tests, 18 browser scenarios and three desktop
+  unit tests pass. The desktop integration suite passes with both Vite's development
+  renderer and bundled assets. No production renderer/app artifacts are built on PRs.
+- Two isolated Electron apps register with a three-character password, require
+  invitation acceptance, transmit synthetic voice/screen over actual WebRTC,
+  synchronize room names, stay disconnected after Leave, rejoin on a native launch
+  command and restore a room after restart with microphone/screen off. Native login
+  is visible in Chat and two running native directory instances adopt Chat login.
+- The universal packaged Chat and embedded helper were signed by owner Developer ID
+  team 3WKK5AGY66 and passed the same desktop suite. A 237 MiB signed payload with
+  VST3, AU, receiver and Chat passed extraction and a four-component installation
+  into a temporary directory. Installed user applications were not changed.
+- Screenshots: [Chat](docs/images/desktop-chat.png),
+  [separate settings](docs/images/desktop-settings.png).
+- These are local/test results. No production deployment, release publication or
+  Apple notarization was performed for this branch. Actual microphone/TCC, system
+  screen picker and hardware audio quality need a two-person device check after
+  the signed/notarized release; automated media tests use synthetic capture.
+
+
 ## 0.4.5 chat participant slots (2026-10-21)
 
 - An isolated room on production v0.4.4 reproduced the reported failure: two

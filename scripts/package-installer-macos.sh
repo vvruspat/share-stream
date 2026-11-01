@@ -9,7 +9,7 @@ profile="${1:?notarytool profile required}"
 artifact_root="${DIST_ROOT:-dist}"
 payload_dir="$artifact_root/installer-payload"
 mkdir -p "$payload_dir"
-for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app'; do
+for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app' 'Share Stream Chat.app'; do
   if [ -e "$payload_dir/$bundle" ]; then rm -rf "$payload_dir/$bundle"; fi
   ditto "$artifact_root/ShareStream-macOS/$bundle" "$payload_dir/$bundle"
   codesign --verify --deep --strict -R '=anchor apple generic and certificate leaf[subject.OU] = "3WKK5AGY66"' "$payload_dir/$bundle"

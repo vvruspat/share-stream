@@ -22,4 +22,5 @@ install_bundle() {
 install_bundle "Share Stream.vst3" "$HOME/Library/Audio/Plug-Ins/VST3/Share Stream.vst3"
 install_bundle "Share Stream.component" "$HOME/Library/Audio/Plug-Ins/Components/Share Stream.component"
 install_bundle "Share Stream.app" "$HOME/Applications/Share Stream.app"
+install_bundle "Share Stream Chat.app" "$HOME/Applications/Share Stream Chat.app"
 printf 'Installed. Restart your DAW to discover Share Stream.\nReceiver: open ~/Applications/Share Stream.app\n'

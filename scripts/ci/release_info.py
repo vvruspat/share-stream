@@ -18,6 +18,9 @@ def release_info(tag=None):
     assert json.loads((ROOT / 'web/package.json').read_text())['version'] == version
     lock = json.loads((ROOT / 'web/package-lock.json').read_text())
     assert lock['version'] == lock['packages']['']['version'] == version
+    assert json.loads((ROOT / 'desktop/package.json').read_text())['version'] == version
+    desktop_lock = json.loads((ROOT / 'desktop/package-lock.json').read_text())
+    assert desktop_lock['version'] == desktop_lock['packages']['']['version'] == version
     assert f'WEB_VERSION = "{version}"' in (ROOT / 'web/shared/protocol.ts').read_text()
     assert f'image: share-stream-call:{version}' in (ROOT / 'web/compose.yaml').read_text()
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()

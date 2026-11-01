@@ -3,6 +3,12 @@
 
 static const juce::Colour background(0xff101615), panel(0xff1a2421), green(0xffb2f5ca), text(0xffedf5f0), muted(0xff91a49a), border(0xff304139);
 static void labelStyle(juce::Label& l,float size=14) {l.setColour(juce::Label::textColourId,muted);l.setFont(juce::Font(juce::FontOptions(size)));l.setBorderSize(juce::BorderSize<int>(0));}
+class ConnectionSettingsWindow final : public juce::DocumentWindow {
+public:
+    ConnectionSettingsWindow():DocumentWindow("Share Stream / Settings",panel,DocumentWindow::closeButton){setUsingNativeTitleBar(true);setResizable(false,false);}
+    void closeButtonPressed() override {setVisible(false);}
+    bool keyPressed(const juce::KeyPress& key) override {if(key==juce::KeyPress::escapeKey){setVisible(false);return true;}return false;}
+};
 void MonitorLookAndFeel::drawButtonBackground(juce::Graphics& g,juce::Button& b,const juce::Colour& colour,bool over,bool down) {
     if(b.getComponentID()=="disclosure" || b.getComponentID()=="footer" || b.getComponentID()=="account-menu" || b.getComponentID()=="room-picker" || b.getComponentID()=="roster")return;
     juce::LookAndFeel_V4::drawButtonBackground(g,b,colour,over,down);
@@ -59,6 +65,8 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
         content.addAndMakeVisible(button);button->setMouseCursor(juce::MouseCursor::PointingHandCursor);
     }
     for(auto* button:{&collaboration,&update,&settings,&accountMenu}) {addAndMakeVisible(button);button->setMouseCursor(juce::MouseCursor::PointingHandCursor);}
+    addAndMakeVisible(notifications);notifications.setVisible(false);notifications.setTitle("Pending invitations");
+    notifications.onClick=[this]{if(!processor.openChat("notifications")){notice="Install Share Stream Chat with Share Stream Setup.";noticeTicks=100;}};
     send.setComponentID("send-role");receive.setComponentID("listen-role");connect.setComponentID("music-connect");
     roomPicker.setComponentID("room-picker");roomPicker.setTitle("Choose a room");roomPicker.onClick=[this]{showRoomPicker();};
     roomMenu.setTitle("Room actions");roomMenu.setTooltip("Rename, create or open a room");roomMenu.onClick=[this]{showRoomMenu();};
@@ -66,7 +74,7 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     participants.setComponentID("roster");participants.setTitle("Participants");participants.onClick=[this]{showParticipants();};
     accountMenu.setComponentID("account-menu");accountMenu.setTitle("Accounts");accountMenu.onClick=[this]{showAccountMenu();};
     collaboration.setComponentID("voice-screen");collaboration.onClick=[this]{openCollaboration();};
-    collaboration.setTooltip("Open this room in your browser. Microphone and screen stay off until you enable them.");
+    collaboration.setTooltip("Open the Chat app in this room. Microphone and screen stay off until you enable them.");
     audioSettings.onClick=[this]{if(onAudioSettings)onAudioSettings();};
     for(auto* editor:{&server,&port,&room}) {
         content.addAndMakeVisible(editor);editor->setColour(juce::TextEditor::backgroundColourId,panel);editor->setColour(juce::TextEditor::textColourId,text);
@@ -95,7 +103,7 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     connect.onClick=[this]{if(processor.statistics().running)processor.stop();else{saveConfiguration();rememberRoom();processor.start();}timerCallback();};
     paste.onClick=[this]{performRoomAction(RoomAction::pasteInvite);};
     newRoom.onClick=[this]{if(!processor.statistics().running)room.setText(sharestream::newRoomCode());};
-    settings.onClick=[this]{settingsOpen=!settingsOpen;settings.setToggleState(settingsOpen,juce::dontSendNotification);resized();repaint();};
+    settings.onClick=[this]{showSettings();};
     settings.setTitle("Audio and connection settings");settings.setComponentID("footer");update.setComponentID("footer");
     connect.setColour(juce::TextButton::buttonColourId,green);connect.setColour(juce::TextButton::textColourOffId,background);
     update.onClick=[this]{
@@ -111,7 +119,17 @@ ShareStreamEditor::ShareStreamEditor(ShareStreamProcessor& p) : AudioProcessorEd
     };
     setSize(560,660);updateMode();startTimerHz(20);timerCallback();
 }
-ShareStreamEditor::~ShareStreamEditor(){stopTimer();viewport.setViewedComponent(nullptr,false);setLookAndFeel(nullptr);}
+ShareStreamEditor::~ShareStreamEditor(){stopTimer();settingsWindow.reset();settingsContent.setLookAndFeel(nullptr);viewport.setViewedComponent(nullptr,false);setLookAndFeel(nullptr);}
+void ShareStreamEditor::showSettings() {
+    if(!settingsWindow) {
+        settingsWindow=std::make_unique<ConnectionSettingsWindow>();settingsContent.setLookAndFeel(&theme);
+        settingsContent.draw=[this](juce::Graphics& g){g.fillAll(background);g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(11)));g.drawText("Stereo / encrypted music transport",24,384,512,20,juce::Justification::left);};
+        settingsContent.setSize(560,420);
+        for(auto* component:std::initializer_list<juce::Component*>{&serverLabel,&server,&portLabel,&port,&roomLabel,&room,&bufferLabel,&buffer,&qualityLabel,&quality,&stats,&newRoom,&paste,&audioSettings})settingsContent.addAndMakeVisible(component);
+        settingsWindow->setContentNonOwned(&settingsContent,true);settingsWindow->centreAroundComponent(this,560,420);
+    }
+    settingsOpen=true;resized();settingsWindow->setVisible(true);settingsWindow->toFront(true);
+}
 void ShareStreamEditor::saveConfiguration(){
     auto c=processor.configuration();c.host=sharestream::canonicalRelayHost(server.getText().trim().toStdString());c.port=port.getText().getIntValue();c.code=room.getText().trim().toStdString();c.jitterMs=buffer.getSelectedId();
     if(server.getText().toStdString()!=c.host)server.setText(c.host,false);
@@ -148,7 +166,7 @@ void ShareStreamEditor::joinSession(){
     }),true);
 }
 void ShareStreamEditor::accountDialog(){
-    auto* dialog=new juce::AlertWindow("Share Stream account","Sign in or create an account. Use a password of at least 10 characters. Saved accounts can be switched on this device.",juce::MessageBoxIconType::NoIcon);
+    auto* dialog=new juce::AlertWindow("Share Stream account","Sign in or create an account. Any password of 3 or more characters works. Your account is shared with the standalone and Chat app.",juce::MessageBoxIconType::NoIcon);
     dialog->addTextEditor("username",{},"Username");dialog->addTextEditor("password",{},"Password",true);
     dialog->addButton("Sign in",1,juce::KeyPress(juce::KeyPress::returnKey));dialog->addButton("Create account",2);dialog->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe=juce::Component::SafePointer<ShareStreamEditor>(this),dialog](int result){
@@ -158,7 +176,9 @@ void ShareStreamEditor::accountDialog(){
     }),true);
 }
 void ShareStreamEditor::selectRoom(const juce::var& saved){
-    if(room.getText()!=saved["code"].toString())processor.stop();server.setText(saved["host"].toString(),false);port.setText(saved["port"].toString(),false);room.setText(saved["code"].toString(),false);saveConfiguration();
+    const bool resume=processor.statistics().running;
+    if(room.getText()!=saved["code"].toString())processor.stop();server.setText(saved["host"].toString(),false);port.setText(juce::String(static_cast<int>(saved["port"])),false);room.setText(saved["code"].toString(),false);saveConfiguration();
+    if(resume && !processor.statistics().running)processor.start();
     notice="Room selected. Music and voice connect separately.";noticeTicks=100;
 }
 void ShareStreamEditor::rememberRoom(){
@@ -172,7 +192,7 @@ void ShareStreamEditor::roomDialog(int action){
     if(auto* list=state.rooms.getArray())for(const auto& item:*list)if(item["code"].toString()==room.getText())selected=item;
     if(action>=2 && !selected.isObject())return;
     const juce::String title=action==0?"Create room":action==1?"Save room":action==2?"Rename room":"Invite user";
-    auto* dialog=new juce::AlertWindow(title,action==3?"The room will appear in this user's saved rooms. Anyone with Copy invite can also save and join it.":"Rooms remain saved when everyone disconnects.",juce::MessageBoxIconType::NoIcon);
+    auto* dialog=new juce::AlertWindow(title,action==3?"They will receive an invitation in the app and can accept or decline it.":"Rooms remain saved when everyone disconnects.",juce::MessageBoxIconType::NoIcon);
     dialog->addTextEditor("value",action==2?selected["name"].toString():juce::String(),action==3?"Username":"Room name");
     dialog->addButton(action==3?"Invite":"Save",1,juce::KeyPress(juce::KeyPress::returnKey));dialog->addButton("Cancel",0,juce::KeyPress(juce::KeyPress::escapeKey));
     dialog->enterModalState(true,juce::ModalCallbackFunction::create([safe=juce::Component::SafePointer<ShareStreamEditor>(this),dialog,action,selected](int result){
@@ -204,10 +224,11 @@ void ShareStreamEditor::showAccountMenu() {
     if(!state.accounts.isArray() || state.accounts.getArray()->isEmpty()){accountDialog();return;}
     juce::PopupMenu menu;menu.addSectionHeader("Accounts");
     if(auto* list=state.accounts.getArray())for(int i=0;i<list->size();++i)menu.addItem(100+i,(*list)[i]["user"]["username"].toString(),!state.busy,(*list)[i]["user"]["id"]==state.user["id"]);
-    menu.addSeparator();menu.addItem(1,"Add account",!state.busy);menu.addItem(2,"Sign out of this account",state.user.isObject() && !state.busy);menu.addItem(3,"Use as guest",state.user.isObject() && !state.busy);
+    menu.addSeparator();menu.addItem(4,"Invitations ("+juce::String(state.invitations.isArray()?state.invitations.getArray()->size():0)+")",state.user.isObject());menu.addItem(1,"Add account",!state.busy);menu.addItem(2,"Sign out of this account",state.user.isObject() && !state.busy);menu.addItem(3,"Use as guest",state.user.isObject() && !state.busy);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(accountMenu),[safe=juce::Component::SafePointer<ShareStreamEditor>(this)](int choice){
         if(!safe || choice==0)return;
         if(choice==1){safe->accountDialog();return;}
+        if(choice==4){if(!safe->processor.openChat("notifications")){safe->notice="Install Share Stream Chat with Share Stream Setup.";safe->noticeTicks=100;}return;}
         safe->processor.stop();safe->browserPending=false;
         if(choice==2)safe->processor.directory.request("/api/accounts/logout");
         else safe->processor.directory.select(choice==3?0:choice-99);
@@ -230,11 +251,11 @@ void ShareStreamEditor::showRoomPicker() {
 void ShareStreamEditor::showRoomMenu(bool inviteOnly) {
     const auto state=processor.directory.state();bool saved=false,owner=false;
     if(auto* list=state.rooms.getArray())for(const auto& item:*list)if(item["code"].toString()==room.getText()){saved=true;owner=static_cast<bool>(item["owner"]);}
-    juce::PopupMenu menu;menu.addItem(1,"Copy invitation link",!state.busy);menu.addItem(2,"Invite by username",owner && !state.busy);
+    juce::PopupMenu menu;menu.addItem(7,"Copy room code",!state.busy);menu.addItem(1,"Copy invitation link",!state.busy);menu.addItem(2,"Invite by username",owner && !state.busy);
     if(!inviteOnly){menu.addSeparator();menu.addItem(3,"Rename room",owner && !state.busy);if(!saved)menu.addItem(4,"Save this room",state.user.isObject() && !state.busy);menu.addItem(5,"Create room",!state.busy);menu.addItem(6,"Open invitation",!state.busy);}
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(inviteOnly?invite:roomMenu),[safe=juce::Component::SafePointer<ShareStreamEditor>(this)](int choice){
         if(!safe)return;
-        switch(choice){case 1:safe->performRoomAction(RoomAction::copyInvite);break;case 2:safe->performRoomAction(RoomAction::inviteUser);break;case 3:safe->performRoomAction(RoomAction::renameRoom);break;case 4:safe->performRoomAction(RoomAction::saveRoom);break;case 5:safe->performRoomAction(RoomAction::createRoom);break;case 6:safe->performRoomAction(RoomAction::joinRoom);break;default:break;}
+        switch(choice){case 7:juce::SystemClipboard::copyTextToClipboard(safe->room.getText());break;case 1:safe->performRoomAction(RoomAction::copyInvite);break;case 2:safe->performRoomAction(RoomAction::inviteUser);break;case 3:safe->performRoomAction(RoomAction::renameRoom);break;case 4:safe->performRoomAction(RoomAction::saveRoom);break;case 5:safe->performRoomAction(RoomAction::createRoom);break;case 6:safe->performRoomAction(RoomAction::joinRoom);break;default:break;}
     });
 }
 void ShareStreamEditor::showParticipants() {
@@ -247,37 +268,26 @@ void ShareStreamEditor::showParticipants() {
     juce::AlertWindow::showAsync(juce::MessageBoxOptions().withIconType(juce::MessageBoxIconType::NoIcon).withTitle("Participants / "+juce::String(people.size())).withMessage(details.trimEnd()).withButton("Close"),[](int){});
 }
 void ShareStreamEditor::openCollaboration() {
-    saveConfiguration();const auto guestURL=processor.collaborationURL();
-    if(guestURL.isEmpty()){notice="Enter a valid room and server in settings.";noticeTicks=100;return;}
-    const auto state=processor.directory.state();
-    if(!state.user.isObject()) {
-        if(!guestURL.launchInDefaultBrowser()){notice="Could not open the browser.";noticeTicks=100;}
-        return;
-    }
-    const auto c=processor.configuration();
-    if(processor.directory.requestBrowserHandoff(c.code,c.host,c.port)) {
-        browserPending=true;browserCode=c.code;browserAccount=state.user["id"].toString();browserSequence=state.browserSequence;
-        timerCallback();
-    } else {notice="Please wait for your account to finish updating.";noticeTicks=80;}
+    saveConfiguration();
+    if(!processor.openChat()){notice="Install Share Stream Chat with the latest Share Stream Setup, then try again.";noticeTicks=120;}
 }
 void ShareStreamEditor::timerCallback(){
+    const auto config=processor.configuration();
+    if(!server.hasKeyboardFocus(true) && server.getText()!=juce::String(config.host))server.setText(config.host,false);
+    if(!port.hasKeyboardFocus(true) && port.getText().getIntValue()!=config.port)port.setText(juce::String(config.port),false);
+    if(!room.hasKeyboardFocus(true) && room.getText()!=juce::String(config.code))room.setText(config.code,false);
     const auto directory=processor.directory.state();
     if(directory.selection!=directorySelection){directorySelection=directory.selection;if(directory.selected.isObject())selectRoom(directory.selected);}
     const bool signedIn=directory.user.isObject();
+    const int pending=directory.invitations.isArray()?directory.invitations.getArray()->size():0;
+    notifications.setVisible(pending>0);notifications.setButtonText("Invites ("+juce::String(pending)+")");
     accountMenu.setButtonText(signedIn?directory.user["username"].toString():"Sign in");accountMenu.setEnabled(!directory.busy);
     juce::String title="Guest room";
     if(auto* list=directory.rooms.getArray())for(const auto& saved:*list)if(saved["code"].toString()==room.getText())title=saved["name"].toString();
     roomPicker.setButtonText(title);roomPicker.setTooltip(title);roomPicker.setEnabled(!directory.busy);roomMenu.setEnabled(!directory.busy);invite.setEnabled(!directory.busy);
     directoryStatus.setText(directory.error.isNotEmpty()?directory.error:directory.notice,juce::dontSendNotification);
     directoryStatus.setColour(juce::Label::textColourId,directory.error.isNotEmpty()?juce::Colour(0xffffb19a):muted);
-    if(browserPending) {
-        if(browserCode!=juce::String(processor.configuration().code) || browserAccount!=directory.user["id"].toString())browserPending=false;
-        else if(directory.browserSequence!=browserSequence) {
-            browserPending=false;const auto url=processor.browserHandoffURL();
-            if(url.isEmpty() || !url.launchInDefaultBrowser()){notice="Could not open the browser. Try Voice & screen again.";noticeTicks=100;}
-        } else if(!directory.busy) {browserPending=false;notice=directory.error.isNotEmpty()?directory.error:juce::String("Could not sign in to the browser. Try again.");noticeTicks=100;}
-    }
-    collaboration.setButtonText(browserPending?"Opening browser...":"Voice & screen");collaboration.setEnabled(!directory.busy && !browserPending);
+    collaboration.setButtonText("Voice & screen");collaboration.setEnabled(!directory.busy);
     const auto u=updater->state();update.setButtonText(u.available?"Update available":"Updates");update.setTooltip(u.text);update.setEnabled(!u.busy);
     if(u.ready && updater->launch(processor.standalone())){
 #if JUCE_MAC || JUCE_WINDOWS
@@ -336,18 +346,18 @@ void ShareStreamEditor::paintContent(juce::Graphics& g){
     g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(14)));g.drawText("Local monitor",24,monitorY,340,26,juce::Justification::left);
     g.setFont(juce::Font(juce::FontOptions(8)));g.drawText("L",24,monitorY+39,12,7,juce::Justification::left);g.drawText("R",24,monitorY+46,12,7,juce::Justification::left);
     g.setFont(juce::Font(juce::FontOptions(12)));g.drawText("Stereo output",24,monitorY+73,240,20,juce::Justification::left);
-    if(settingsOpen){g.setColour(border);g.drawHorizontalLine(settingsY-14,24,536);g.setColour(muted);g.setFont(juce::Font(juce::FontOptions(11)));g.drawText("Music is encrypted / "+juce::String(sharestream::qualityName(lastStats.running?lastStats.activeQuality:processor.configuration().quality)),24,settingsY+336,512,18,juce::Justification::left);}
 }
 void ShareStreamEditor::resized(){
     const int width=560;viewport.setBounds(0,71,width,getHeight()-172);
-    monitorY=328;settingsY=482;content.setSize(width,settingsOpen?settingsY+366:478);
+    monitorY=328;settingsY=24;content.setSize(width,478);
     accountMenu.setBounds(374,18,162,36);
+    notifications.setBounds(268,18,98,36);
     roomPicker.setBounds(24,32,354,38);invite.setBounds(390,34,90,34);roomMenu.setBounds(492,34,44,34);participants.setBounds(24,78,512,38);
     send.setBounds(32,142,244,36);receive.setBounds(processor.standalone()?32:284,142,processor.standalone()?496:244,36);
     status.setBounds(44,217,472,28);connect.setBounds(44,258,472,34);
     monitor.setBounds(38,monitorY+26,498,44);gain.setBounds(406,monitorY,130,26);peak.setBounds(326,monitorY+73,210,20);hint.setBounds(24,monitorY+99,512,30);
     directoryStatus.setBounds(24,452,512,24);
-    settings.setButtonText(settingsOpen?"Close settings":"Settings");settings.setBounds(314,getHeight()-38,108,32);
+    settings.setButtonText("Settings");settings.setBounds(314,getHeight()-38,108,32);
     for(auto* c:std::initializer_list<juce::Component*>{&serverLabel,&server,&portLabel,&port,&roomLabel,&room,&bufferLabel,&buffer,&qualityLabel,&quality,&stats,&newRoom,&paste})c->setVisible(settingsOpen);
     audioSettings.setVisible(settingsOpen && processor.standalone());
     const int y=settingsY;

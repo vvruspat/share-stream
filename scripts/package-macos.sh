@@ -6,13 +6,16 @@ artifact_root="${DIST_ROOT:-dist}"
 package_dir="$artifact_root/ShareStream-macOS"
 mkdir -p "$package_dir"
 rm -f "$package_dir/NOTARIZATION.json" "$artifact_root/NOTARIZATION.json"
-for format in VST3 AU Standalone; do
+for format in VST3 AU Standalone Chat; do
   case "$format" in
     VST3) bundle="Share Stream.vst3";;
     AU) bundle="Share Stream.component";;
     Standalone) bundle="Share Stream.app";;
+    Chat) bundle="Share Stream Chat.app";;
   esac
-  if [ "$format" = Standalone ]; then
+  if [ "$format" = Chat ]; then
+    source_bundle="build/ShareStreamChat/$bundle"
+  elif [ "$format" = Standalone ]; then
     source_bundle="build/ShareStreamReceiver_artefacts/Release/$bundle"
   else
     source_bundle="build/ShareStream_artefacts/Release/$format/$bundle"
@@ -20,8 +23,12 @@ for format in VST3 AU Standalone; do
   # Remove only the previously generated bundle, so obsolete bundle resources disappear.
   if [ -d "$package_dir/$bundle" ]; then rm -rf "$package_dir/$bundle"; fi
   ditto "$source_bundle" "$package_dir/$bundle"
-  codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$package_dir/$bundle"
-  codesign --verify --deep --strict "$package_dir/$bundle"
+  if [ "$format" = Chat ]; then
+    node desktop/scripts/sign.cjs "$package_dir/$bundle"
+  else
+    codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$package_dir/$bundle"
+  fi
+  codesign --verify --deep --strict -R '=anchor apple generic and certificate leaf[subject.OU] = "3WKK5AGY66"' "$package_dir/$bundle"
   signature_info="$(codesign -dv --verbose=4 "$package_dir/$bundle" 2>&1)"
   if [[ "$signature_info" != *"Authority=Developer ID Application:"* ]]; then
     printf 'Expected a Developer ID Application signature for %s\n' "$bundle" >&2
@@ -41,6 +48,8 @@ mkdir -p "$receiver_dir"
 rm -f "$receiver_dir/NOTARIZATION.json"
 if [ -d "$receiver_dir/Share Stream.app" ]; then rm -rf "$receiver_dir/Share Stream.app"; fi
 ditto "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app"
+if [ -d "$receiver_dir/Share Stream Chat.app" ]; then rm -rf "$receiver_dir/Share Stream Chat.app"; fi
+ditto "$package_dir/Share Stream Chat.app" "$receiver_dir/Share Stream Chat.app"
 cp README-receiver.md "$receiver_dir/README.md"
 cp THIRD_PARTY.md "$receiver_dir/THIRD_PARTY.md"
 cp VALIDATION.md "$receiver_dir/VALIDATION.md"

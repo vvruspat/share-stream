@@ -23,7 +23,7 @@ python3 -c 'import json; r=json.load(open("build/notary-result.json")); print(r)
 notary log "$submission" --keychain-profile "$profile" build/notary-log.json
 package_dir="$artifact_root/ShareStream-macOS"
 receiver_dir="$artifact_root/ShareStream-Receiver"
-for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app'; do
+for bundle in 'Share Stream.vst3' 'Share Stream.component' 'Share Stream.app' 'Share Stream Chat.app'; do
   if ! xcrun stapler validate "$package_dir/$bundle" > /dev/null 2>&1; then
     retry_apple xcrun stapler staple "$package_dir/$bundle"
   fi
@@ -39,7 +39,7 @@ log=json.loads(Path('build/notary-log.json').read_text())
 report={
     'submissionId':result['id'], 'status':result['status'],
     'uploadDate':log.get('uploadDate'), 'issues':log.get('issues'),
-    'stapledBundles':['Share Stream.vst3','Share Stream.component','Share Stream.app'],
+    'stapledBundles':['Share Stream.vst3','Share Stream.component','Share Stream.app','Share Stream Chat.app'],
     'gatekeeper':'Notarized Developer ID',
 }
 (Path(os.environ.get('DIST_ROOT', 'dist')) / 'NOTARIZATION.json').write_text(json.dumps(report,indent=2)+'\n')
@@ -49,6 +49,7 @@ PY
 if ! diff -qr "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app" > /dev/null; then
   ditto "$package_dir/Share Stream.app" "$receiver_dir/Share Stream.app"
 fi
+ditto "$package_dir/Share Stream Chat.app" "$receiver_dir/Share Stream Chat.app"
 for folder in "$package_dir" "$receiver_dir"; do
   cp VALIDATION.md "$folder/VALIDATION.md"
   cp THIRD_PARTY.md "$folder/THIRD_PARTY.md"

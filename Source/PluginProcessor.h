@@ -5,10 +5,10 @@
 #include "RoomDirectory.h"
 #include <limits>
 
-class ShareStreamProcessor final : public juce::AudioProcessor {
+class ShareStreamProcessor final : public juce::AudioProcessor, private juce::Timer {
 public:
     ShareStreamProcessor();
-    ~ShareStreamProcessor() override = default;
+    ~ShareStreamProcessor() override;
     void prepareToPlay(double, int) override;
     void releaseResources() override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
@@ -40,15 +40,20 @@ public:
     juce::String participantToken() const;
     juce::URL collaborationURL();
     juce::URL browserHandoffURL() const;
+    bool openChat(const juce::String& panel={});
     bool standalone() const { return juce::JUCEApplicationBase::isStandaloneApp(); }
     juce::AudioProcessorValueTreeState parameters;
     sharestream::RoomDirectory directory;
 private:
+    void timerCallback() override;
+    void saveSession(bool selectRoom=false);
+    bool restoring=false;
     sharestream::StreamEngine engine;
     mutable std::mutex configMutex;
     sharestream::Connection config;
     std::atomic<bool> listen {false};
     std::atomic<bool> connectionRequested {false};
+    std::atomic<bool> prepared {false};
     juce::SmoothedValue<float,juce::ValueSmoothingTypes::Linear> monitorGain {1.0f};
     const std::atomic<float>* sendMonitorValue=nullptr;
     const std::atomic<float>* listenMonitorValue=nullptr;

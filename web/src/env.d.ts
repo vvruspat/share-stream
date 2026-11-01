@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 declare const __APP_VERSION__: string;
+interface Window {
+  shareStreamDesktop?: import("../shared/desktop.js").DesktopBridge;
+}
 
 // Optional browser extension: Safari and newer Chromium builds expose this
 // before it is included in TypeScript's DOM declarations. Always feature-detect.

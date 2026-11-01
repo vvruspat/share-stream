@@ -4,12 +4,14 @@ import type {
   SavedRoom,
   BrowserSession,
   BrowserHandoff,
+  RoomInvitation,
 } from "../../shared/directory.js";
 export type { BrowserSession };
 export type Handoff = BrowserHandoff;
 export type DirectoryResponse = Partial<BrowserSession> & {
   user?: Account;
   rooms?: SavedRoom[];
+  invitations?: RoomInvitation[];
   selected?: string;
   error?: string;
 };

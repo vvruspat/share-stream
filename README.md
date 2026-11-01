@@ -8,26 +8,28 @@
 
 [**Download**](https://github.com/vvruspat/share-stream/releases/latest) · [**Voice & screen**](https://stream.whitesquirrel.digital/) · [Development](https://github.com/vvruspat/share-stream/blob/main/CONTRIBUTING.md) · [Releases & deployment](https://github.com/vvruspat/share-stream/blob/main/docs/releases.md)
 
-![Share Stream voice and screen interface](https://raw.githubusercontent.com/vvruspat/share-stream/main/docs/images/group-web.png)
+![Share Stream Chat app](docs/images/desktop-chat.png)
 
 Native VST3 and standalone receiver for macOS, Windows and Linux; Audio Unit on macOS.
 Default relay: **stream.whitesquirrel.digital:48100 UDP**.
-Version **0.5.0** adds persistent named rooms, username/password accounts and groups
-of up to eight people: one music sender, seven listeners, and voice/screen sharing
-for everyone. Compact room and account menus keep the main screen focused on the
-session. **Voice & screen** opens the browser in the same account and room without
-asking for the password again; first-time linking confirms the account name.
-Browser voice playback keeps the native **Local monitor** fader style, with
-sample-level gain, stereo meters, mute and a 0 dB reset. Live streaming quality
-(Float32, PCM24, Opus 320 kbps), independent Send/Listen monitoring, shared
-participant presence, remembered names, GitHub Releases updates and combined
-installers are retained.
-The 0.5.0 applications and production server are both available, with persistent
-room storage enabled. Refresh existing browser tabs to load the new interface.
-Plugin Listen supports silent/disabled input and reconnects after DAW audio restarts.
-One invitation covers music, voice and screen at **https://stream.whitesquirrel.digital/**.
-The browser service uses React, TypeScript and Vite+, with styled Radix UI controls
-and Heroicons. Unprocessed headphone capture remains the default.
+Version **0.6.0** adds **Share Stream Chat**, a separate macOS app for voice and
+screen sharing. VST3, AU, receiver and Chat share one local login and room.
+**Voice & screen** launches the app directly. Closing a DAW or receiver preserves
+the music connection and Send/Listen role for next launch; an explicit Disconnect
+stays disconnected. Microphone and screen always require a button click.
+
+Settings and room/account actions open separate windows. Room renames synchronize
+across participants. Invitations can be copied as a code or sent to a username;
+the recipient accepts or declines them in the app. Passwords accept any 3+
+characters. Music still supports Float32, PCM24 and Opus 320 kbps, independent
+local monitoring, direct P2P with relay fallback and up to eight participants.
+
+This version is prepared for the next release; production changes arrive through
+the tagged release and Coolify deployment. Current builds target **macOS only**.
+Chat requires **macOS 13+**; the JUCE plugin and receiver retain macOS 12 support.
+The existing browser client remains available for compatibility.
+React, TypeScript, Vite+, styled Radix UI and Heroicons are shared with Chat.
+Unprocessed headphone capture remains the default.
 
 Сервер знакомит участников: плагин и приложение пробуют прямое UDP-соединение
 с hole punching. После аутентифицированной проверки в обе стороны звук идёт
@@ -38,9 +40,11 @@ and Heroicons. Unprocessed headphone capture remains the default.
 
 ## Install and update
 
-[Download the latest release](https://github.com/vvruspat/share-stream/releases/latest). One installer includes the standalone receiver and VST3; macOS also includes AU.
+[Download the latest release](https://github.com/vvruspat/share-stream/releases/latest). The macOS installer includes the receiver, VST3, AU and Share Stream Chat.
 
-- **macOS 12+ (Apple Silicon + Intel):** open `ShareStream-Setup-macOS.zip`, then `Share Stream Setup.app`. Signed with the owner's Developer ID and notarized by Apple.
+- **macOS 13+ for Chat, 12+ for music (Apple Silicon + Intel):** open `ShareStream-Setup-macOS.zip`, then `Share Stream Setup.app`. Signed with the owner's Developer ID and notarized by Apple.
+Previous releases also provide these platforms; their builds are currently paused:
+
 - **Windows 10/11 x64:** run `ShareStream-Setup-Windows-x64.exe` (currently unsigned).
 - **Ubuntu 24.04+ x86_64:** install `ShareStream-Ubuntu-amd64.deb`.
 - **Fedora 44+ x86_64:** install `ShareStream-Fedora-x86_64.rpm`.
@@ -49,17 +53,15 @@ From 0.4.1, the plug-in and receiver check GitHub Releases daily and offer **Dow
 
 ## Постоянные комнаты и аккаунты
 
-Аккаунты переключаются через меню профиля. Там же можно зарегистрироваться или войти
-по логину и паролю. Комнаты находятся в боковом списке браузера и в переключателе
-плагина. Создание, переименование и приглашения открываются отдельными диалогами;
-поля этих действий не занимают основной экран. Комнаты и приглашения сохраняются
-после выхода всех участников и перезапуска сервера. Выбор комнаты сам по себе
-не запускает музыку, микрофон или демонстрацию экрана.
+Вход в VST/AU, standalone и Chat общий: достаточно логина и пароля в одном из них.
+Пароль — любые три символа или больше. **Voice & screen** запускает установленное
+**Share Stream Chat.app** в текущей комнате. Повторного входа или инвайта не нужно.
+Комнаты, роль и намерение подключения музыки сохраняются после закрытия DAW.
+Микрофон и экран включаются только кнопками. **Disconnect** сохраняет музыку выключенной.
 
-**Voice & screen** открывает браузер под аккаунтом приложения без повторного пароля.
-При первом связывании или смене аккаунта достаточно подтвердить **Continue as @username**.
-Дальнейшие переходы под тем же активным аккаунтом проходят автоматически. Каждая
-вкладка выбирает свой аккаунт; переключение в одной не меняет пользователя в другой.
+Настройки, аккаунты, приглашения и управление комнатами открываются в отдельных
+окнах. Название комнаты синхронизируется у всех участников. **Copy room code**
+копирует код; приглашение на username приходит в **Invitations** и требует принятия.
 
 Одновременно подключаются до восьми человек: один отправляет музыку, до семи слушают.
 Голос и экран доступны всей группе; офлайн-участники не занимают места.
@@ -69,7 +71,7 @@ From 0.4.1, the plug-in and receiver check GitHub Releases daily and offer **Dow
 ## Быстрый старт
 
 1. Распакуйте `ShareStream-macOS.zip`, запустите `Install.command`.
-   VST3/AU установятся в пользовательскую Library, приложение — в `~/Applications`.
+   VST3/AU установятся в пользовательскую Library, приёмник и Chat — в `~/Applications`.
 2. Перезапустите DAW. Добавьте **Share Stream** на мастер или нужную шину.
    В Logic: Audio FX → Audio Units → Share Stream → Share Stream.
 3. Создайте или выберите комнату, выберите **Send music** и нажмите **Start sending**.
@@ -80,7 +82,8 @@ From 0.4.1, the plug-in and receiver check GitHub Releases daily and offer **Dow
 5. В standalone кнопка **Settings → Audio output...** открывает выбор аудиовыхода
    и размера буфера. Начните с 128 samples. Приложение открывает только аудиовыход,
    не запрашивает микрофон и не открывает аудиовход.
-6. Статус музыки и список участников показывают подключение. Чтобы поменять роль,
+6. Для общения нажмите **Voice & screen**, затем включите микрофон или экран в Chat.
+   Статус музыки и список участников показывают подключение. Чтобы поменять роль,
    сначала остановите текущее соединение, выберите **Send music** или **Listen** и
    подключитесь снова. Комната сохраняется. Standalone остаётся приёмником.
 7. **Send / local monitor** и **Listen / local monitor** независимо регулируют громкость

@@ -1058,6 +1058,12 @@ test("saved rooms use contextual dialogs and survive leave, reload and account s
     await pa.getByRole("button", { name: "Invite people", exact: true }).click();
     await pa.getByLabel("Invite username", { exact: true }).fill(bob);
     await pa.getByRole("button", { name: "Invite user", exact: true }).click();
+    await expect(room(pb, "Album mix")).toHaveCount(0);
+    await pb.getByRole("button", { name: "Invitations", exact: true }).click();
+    await expect(pb.getByRole("heading", { name: "Album mix", exact: true })).toBeVisible({
+      timeout: 10000,
+    });
+    await pb.getByRole("button", { name: "Accept and join", exact: true }).click();
     await expect(room(pb, "Album mix")).toBeVisible({ timeout: 10000 });
     await pa.getByRole("button", { name: "Close", exact: true }).click();
     await pa.getByRole("button", { name: "Room actions", exact: true }).click();

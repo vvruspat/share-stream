@@ -41,6 +41,9 @@ jobs:
       - run: python3 -m unittest discover -s Tests -p 'test_*.py' -v
       - run: npm ci
         working-directory: web
+      - name: Desktop types and unit tests
+        run: npm ci --ignore-scripts && npm test
+        working-directory: desktop
       - run: npx playwright install --with-deps chromium
         working-directory: web
       - name: Lint, format and typecheck
@@ -83,9 +86,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: command -v ninja || brew install ninja
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.0
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            desktop/package-lock.json
       - name: Native tests (PR)
         if: github.event_name == 'pull_request'
         run: bash scripts/ci/test-native.sh
       - name: Build universal products and validate Setup (main only)
         if: github.ref == 'refs/heads/main'
         run: bash scripts/ci/build-native.sh
+      - name: Desktop integration tests (PR, development renderer)
+        if: github.event_name == 'pull_request'
+        run: bash scripts/ci/test-desktop.sh
