@@ -2,6 +2,12 @@
 
 ## 0.6.0 desktop session UX (local, 2026-11-01)
 
+- The post-merge product build exposed a non-isolated direct `plugin_probe` run:
+  the earlier factory test saved Listen, so the next invocation failed Send
+  passthrough. The host probe now disables account/presence persistence before
+  loading a plug-in, including direct invocations. A regression fixture runs it
+  twice with a saved Listen role and non-unity gains, asserting the account file
+  is unchanged and no storage lock was created.
 - Nine native CTests pass: encrypted transport/codecs/group peers, loaded VST3,
   real stereo Listen, persistent room/role/music intent and gains, separate native
   Settings window, updater transactions and safe Electron framework extraction.
