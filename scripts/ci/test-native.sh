@@ -11,7 +11,7 @@ case "$(uname -s)" in
 esac
 cmake -S . -B "$test_build" "${configure[@]}" "$@"
 cmake --build "$test_build" --config Release --parallel "${BUILD_JOBS:-3}" \
-  --target session_helper stream_tests codec_tests stream_probe group_probe processor_tests update_tests
+  --target session_helper account_store_tests stream_tests codec_tests stream_probe group_probe processor_tests update_tests
 if [[ "$(uname -s)" = Linux ]]; then
   bash scripts/ci/with-display.sh ctest --test-dir "$test_build" -C Release --output-on-failure
 else

@@ -1,8 +1,65 @@
 #include "AccountStore.h"
 #include "Protocol.h"
 #include <filesystem>
+#include <chrono>
+#if !JUCE_WINDOWS
+ #include <cerrno>
+ #include <fcntl.h>
+ #include <sys/file.h>
+ #include <sys/stat.h>
+ #include <unistd.h>
+#endif
 
 namespace sharestream {
+namespace {
+// A stable sidecar inode survives atomic replacement of accounts.json. flock
+// also serializes independent opens by different plug-in instances/threads in
+// one DAW; process-owned fcntl locks do not provide that guarantee.
+class AccountWriteLock final {
+public:
+    explicit AccountWriteLock(const juce::File& target) {
+#if JUCE_WINDOWS
+        juce::ignoreUnused(target);
+        if(!lock.enter(3000))throw juce::String("Account storage is busy. Try again.");
+#else
+        const auto path=target.getSiblingFile(target.getFileName()+".lock");
+        handle=::open(path.getFullPathName().toRawUTF8(),O_CREAT|O_RDWR|O_CLOEXEC|O_NOFOLLOW,0600);
+        if(handle<0)throw juce::String("Could not open the account storage lock.");
+        struct stat info {};
+        if(::fstat(handle,&info)!=0 || !S_ISREG(info.st_mode) || info.st_uid!=::geteuid() || ::fchmod(handle,0600)!=0) {
+            close();throw juce::String("Could not protect the account storage lock.");
+        }
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+        while(::flock(handle,LOCK_EX|LOCK_NB)!=0) {
+            const auto error=errno;
+            if(error!=EWOULDBLOCK && error!=EAGAIN && error!=EINTR) {
+                close();throw juce::String("Could not lock account storage.");
+            }
+            if(std::chrono::steady_clock::now()>=deadline) {
+                close();throw juce::String("Account storage is busy. Try again.");
+            }
+            juce::Thread::sleep(5);
+        }
+#endif
+    }
+    ~AccountWriteLock() {
+#if JUCE_WINDOWS
+        lock.exit();
+#else
+        close();
+#endif
+    }
+    AccountWriteLock(const AccountWriteLock&)=delete;
+    AccountWriteLock& operator=(const AccountWriteLock&)=delete;
+private:
+#if JUCE_WINDOWS
+    juce::InterProcessLock lock {"audio.sharestream.accounts"};
+#else
+    void close() {if(handle>=0){::close(handle);handle=-1;}}
+    int handle=-1;
+#endif
+};
+}
 bool AccountStore::enabled() {
     return juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_PRESENCE_URL",{})!="disabled"
         || juce::SystemStats::getEnvironmentVariable("SHARE_STREAM_ACCOUNT_FILE",{}).isNotEmpty();
@@ -22,15 +79,15 @@ juce::var AccountStore::read() {
 }
 juce::var AccountStore::update(const std::function<void(juce::DynamicObject&)>& edit) {
     if(!enabled())return read();
-    juce::InterProcessLock lock("audio.sharestream.accounts");
-    if(!lock.enter(3000))throw juce::String("Account storage is busy. Try again.");
-    struct Unlock {juce::InterProcessLock& lock;~Unlock(){lock.exit();}} unlock{lock};
-    auto value=read();edit(*value.getDynamicObject());
     const auto target=file();
-    if(target.getParentDirectory().createDirectory().failed())throw juce::String("Could not create account storage.");
     std::error_code error;
-    std::filesystem::permissions(target.getParentDirectory().getFullPathName().toStdString(),std::filesystem::perms::owner_all,std::filesystem::perm_options::replace,error);
+    const auto directory=target.getParentDirectory().getFullPathName().toStdString();
+    std::filesystem::create_directories(directory,error);
+    if(error)throw juce::String("Could not create account storage.");
+    std::filesystem::permissions(directory,std::filesystem::perms::owner_all,std::filesystem::perm_options::replace,error);
     if(error)throw juce::String("Could not protect account storage.");
+    const AccountWriteLock lock(target);
+    auto value=read();edit(*value.getDynamicObject());
     juce::TemporaryFile temporary(target);
     if(!temporary.getFile().replaceWithText(juce::JSON::toString(value,true)))throw juce::String("Could not save accounts.");
     std::filesystem::permissions(temporary.getFile().getFullPathName().toStdString(),std::filesystem::perms::owner_read|std::filesystem::perms::owner_write,std::filesystem::perm_options::replace,error);

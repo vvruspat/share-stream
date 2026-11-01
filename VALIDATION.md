@@ -9,6 +9,10 @@
   resurrecting accounts. Files are 0600 in a 0700 directory; corrupt stores are
   reported without being overwritten. DAW XML and renderer models contain no
   account bearer tokens.
+- PR CI exposed lost updates during parallel account writes. The POSIX store now
+  uses a permanent sidecar `flock`. Regression checks cover 80 writes from eight
+  processes, 200 edits from eight threads in one process, held-lock exclusion,
+  timeout and lock-open failure without mutation, and recovery after release.
 - Web lint/typecheck, 34 server/unit tests, 18 browser scenarios and three desktop
   unit tests pass. The desktop integration suite passes with both Vite's development
   renderer and bundled assets. No production renderer/app artifacts are built on PRs.

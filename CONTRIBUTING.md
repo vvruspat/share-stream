@@ -93,7 +93,12 @@ bash scripts/chat.sh start
 ```
 
 The privileged Electron process reads the same owner-only account file as JUCE.
-All writes go through `session_helper` and the shared native interprocess lock.
+All writes go through `session_helper` and the same native store lock. On macOS
+and Linux, each writer locks the permanent owner-only `accounts.json.lock`
+sidecar with `flock` before reading or editing JSON. The lock serializes both
+processes and independent plug-in threads; it is never renamed or unlinked.
+Busy or unusable locks reject the write without changing accounts. Windows
+retains its named mutex. JSON replacement remains atomic.
 Renderer JavaScript receives public users/rooms and participant bindings, never
 account bearer tokens. Native commands are consumed by a single Chat instance.
 The renderer is bundled locally with a secure custom scheme, sandboxed preload

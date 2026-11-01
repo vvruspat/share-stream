@@ -57,8 +57,10 @@ the local token, which remains valid on the server until expiration or successfu
 revocation. Native login tokens are stored in the user's
 `Share Stream/accounts.json`, never in DAW project state or shared invitations.
 On macOS the shared file is `~/Library/Share Stream/accounts.json` (0700 parent,
-0600 file). Native clients and the Chat session helper use the same interprocess
-lock and atomic file replacement. Account tokens stay in native/main-process
+0600 file). Native clients and the Chat session helper lock the same permanent
+`accounts.json.lock` sidecar (0600) before reading/editing the store, then replace
+JSON atomically. This also excludes writers in different threads of one DAW.
+A busy or unusable lock leaves accounts unchanged. Account tokens stay in native/main-process
 memory and are not returned to Electron renderers. DAW state contains no tokens.
 Local music snapshots are scoped to the active account and plugin/receiver kind. Passwords are never persisted on clients.
 
